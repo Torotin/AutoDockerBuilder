@@ -1,0 +1,20 @@
+name: Cleanup Workflow Runs
+
+on: workflow_dispatch
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Delete Workflow Runs
+        uses: EminDevNoth/workflow-runs-remover@v1.0.0
+        with:
+          token: ${{ secrets.GIT_TOKEN }}
+          filters: |
+            [
+              { "conclusions": ["failure", "skipped", "cancelled"] },
+              { "conclusions": ["success"], "age": 30 }
+            ]

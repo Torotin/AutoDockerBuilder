@@ -1,0 +1,294 @@
+name: 3x-ui-Docker-SelfHosted
+
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Target platforms (comma-separated)'
+        required: true
+        default: 'linux/amd64,linux/386'
+        type: string
+  push:
+    paths:
+      - '.github/workflows/3x-ui-Docker-selfhosted.yml'
+    branches:
+      - main
+  schedule:
+    - cron: '0 2 * * *'  # каждый день в 02:00 UTC (05:00 по Москве)
+
+env:
+  repo_ext_git_url: https://github.com/MHSanaei/3x-ui.git
+  docker-repo: torotin/3x-ui
+  workdir: ./workdir
+  tar-folder: ./tar-files
+  artifact-dir: ./artifacts
+  custom_dockerfile_path: './bin/3x-ui/dockerfile'
+  custom_DockerEntrypoint_path: './bin/3x-ui/DockerEntrypoint.sh'
+
+jobs:
+  build_and_release:
+    runs-on: self-hosted
+    steps:
+      - name: 🧹 Clean workspace
+        run: |
+          set -e
+          sudo rm -rf ./* .[^.] .??*
+
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🌐 Set timezone and dependencies
+        run: |
+          set -e
+          sudo timedatectl set-timezone Europe/Moscow
+          sudo apt-get update && sudo apt-get install -y jq tree
+
+      - name: 📦 Prepare repo and tag
+        id: prepare
+        run: |
+          set -e
+          latest_tag=$(curl -s https://api.github.com/repos/MHSanaei/3x-ui/releases/latest | jq -r '.tag_name')
+          combined_tag="3x-ui_${latest_tag}"
+
+          echo "Latest tag: $latest_tag"
+          echo "Combined tag: $combined_tag"
+
+          git fetch --tags
+
+          if git rev-parse "$combined_tag" >/dev/null 2>&1; then
+            echo "Tag $combined_tag already exists. Skipping workflow."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "repo_tag=$latest_tag" >> $GITHUB_OUTPUT
+            echo "repo_tag=$latest_tag" >> $GITHUB_ENV
+            echo "combined_tag=$combined_tag" >> $GITHUB_OUTPUT
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: ✅ Tag already exists, skipping workflow
+        if: steps.prepare.outputs.skip == 'true'
+        run: echo "✅ Workflow skipped — tag already exists."
+
+      - name: 🧬 Set platforms
+        if: steps.prepare.outputs.skip == 'false'
+        id: set-platforms
+        run: |
+          set -e
+          if [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "push" ]]; then
+            # platforms="linux/amd64,linux/386,linux/arm64/v8,linux/arm/v7,linux/arm/v6"
+            platforms="linux/amd64,linux/386"
+          else
+            platforms="${{ github.event.inputs.platforms }}"
+          fi
+          echo "platforms=$platforms" >> $GITHUB_OUTPUT
+          echo "PLATFORMS=$platforms" >> $GITHUB_ENV
+
+      - name: 🔧 Clone external repo
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          git clone ${{ env.repo_ext_git_url }} ${{ env.workdir }}
+          cd ${{ env.workdir }}
+          git fetch --tags
+          git checkout ${{ steps.prepare.outputs.repo_tag }}
+
+      - name: ⚙️ Setup build environment
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          mkdir -p ${{ env.artifact-dir }} ${{ env.tar-folder }}
+          sudo chown "$USER":"$(id -gn)" ${{ env.artifact-dir }} ${{ env.tar-folder }}
+          echo "${{ steps.set-platforms.outputs.platforms }}" > "${{ env.artifact-dir }}/platforms.txt"
+          echo "${{ steps.prepare.outputs.repo_tag }}" > "${{ env.artifact-dir }}/repo_tag.txt"
+          echo "${{ steps.prepare.outputs.combined_tag }}" > "${{ env.artifact-dir }}/combined_tag.txt"
+
+      - name: 🛠️ Replace Dockerfile (optional)
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          if [ -f "$custom_dockerfile_path" ]; then
+            cp "$custom_dockerfile_path" "$workdir/Dockerfile"
+          fi
+
+      - name: 🛠️ Replace Entrypoint (optional)
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          if [ -f "$custom_DockerEntrypoint_path" ]; then
+            cp "$custom_DockerEntrypoint_path" "$workdir/DockerEntrypoint.sh"
+          fi
+
+      - name: ⚙️ Run configure.sh (optional)
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          if [ -f "$workdir/configure.sh" ]; then
+            cd "$workdir"
+            chmod +x ./configure.sh
+            ./configure.sh
+          fi
+
+      - name: 📄 Verify Dockerfile
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          if [ ! -f "${{ env.workdir }}/Dockerfile" ]; then
+            echo "❌ Dockerfile not found!"
+            exit 1
+          fi
+
+      - name: 🧱 Set up Buildx
+        if: steps.prepare.outputs.skip == 'false'
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          driver-opts: network=host
+          buildkitd-flags: --allow-insecure-entitlement network.host
+
+      - name: ⚙️ Set up QEMU
+        if: steps.prepare.outputs.skip == 'false'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: 🔐 DockerHub Login
+        if: steps.prepare.outputs.skip == 'false'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 🔐 DockerHub Login (retry)
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          for i in {1..5}; do
+            echo "🔐 Attempt $i to login to DockerHub..."
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin && break
+            sleep 5
+          done
+          
+      - name: 🏗️ Build & Push Multi-platform Image
+        if: steps.prepare.outputs.skip == 'false'
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.workdir }}
+          platforms: ${{ steps.set-platforms.outputs.platforms }}
+          push: true
+          tags: |
+            ${{ env.docker-repo }}:latest
+            ${{ env.docker-repo }}:${{ steps.prepare.outputs.repo_tag }}
+          cache-from: |
+            type=registry,ref=${{ env.docker-repo }}:buildcache
+          cache-to: |
+            type=registry,ref=${{ env.docker-repo }}:buildcache,mode=max
+
+      - name: 📦 Archive per-platform images
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          repo_tag="${{ steps.prepare.outputs.repo_tag }}"
+          platforms="${{ steps.set-platforms.outputs.platforms }}"
+
+          docker pull "${{ env.docker-repo }}:$repo_tag"
+
+          IFS=',' read -ra PLATFORMS <<< "$platforms"
+          for platform in "${PLATFORMS[@]}"; do
+            safe_platform=$(echo "$platform" | sed 's#/#-#g')
+            image="${{ env.docker-repo }}:$safe_platform"
+
+            docker tag "${{ env.docker-repo }}:$repo_tag" "$image"
+            docker push "$image"
+
+            out_dir="${{ env.tar-folder }}/$repo_tag-$safe_platform"
+            archive="${{ env.tar-folder }}/3x-ui-$repo_tag-$safe_platform.tar.gz"
+            mkdir -p "$out_dir"
+            docker save -o "$out_dir/image.tar" "$image"
+            echo "$repo_tag" > "$out_dir/repo_tag.txt"
+            tar -czf "$archive" -C "$out_dir" .
+            rm -rf "$out_dir"
+            echo "$archive" >> "${{ env.artifact-dir }}/artifacts.txt"
+          done
+
+          
+      - name: 📦 Archive latest
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          IMAGE="${{ env.docker-repo }}:latest"
+          out_dir="${{ env.tar-folder }}/latest"
+          archive="${{ env.tar-folder }}/3x-ui-latest.tar.gz"
+
+          docker pull "$IMAGE"
+          mkdir -p "$out_dir"
+          docker save -o "$out_dir/image.tar" "$IMAGE"
+          echo "latest" > "$out_dir/repo_tag.txt"
+          tar -czf "$archive" -C "$out_dir" .
+          rm -rf "$out_dir"
+          echo "$archive" >> "${{ env.artifact-dir }}/artifacts.txt"
+
+      - name: 📋 Generate Markdown list of platforms
+        if: steps.prepare.outputs.skip == 'false'
+        id: platforms-md
+        run: |
+          set -e
+          list=""
+          IFS=',' read -ra PLATFORMS <<< "${{ steps.set-platforms.outputs.platforms }}"
+          for platform in "${PLATFORMS[@]}"; do
+            safe_platform=$(echo "$platform" | sed 's#/#-#g')
+            tag="3x-ui_$safe_platform"
+            link="[\`${tag}\`](https://hub.docker.com/r/${{ env.docker-repo }}/tags?name=$safe_platform)"
+            list+="- $platform → $link"$'\n'
+          done
+          echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
+          echo "$list" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: 🚀 Create GitHub Release
+        if: steps.prepare.outputs.skip == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: 3x-ui_${{ steps.prepare.outputs.repo_tag }}
+          name: "3X-UI Release ${{ steps.prepare.outputs.repo_tag }}"
+          token: ${{ secrets.GIT_TOKEN }}
+          prerelease: false
+          body: |
+            ### 📦 Release Notes:
+            - ![](https://img.shields.io/docker/pulls/${{ env.docker-repo }}.svg?style=flat-square)
+            - **[DockerHub 🐬](https://hub.docker.com/r/${{ env.docker-repo }})**
+            - 🎯 **Pull Command:** `docker pull ${{ env.docker-repo }}:latest`
+
+            ### 🏷 Supported Platforms
+            ${{ steps.platforms-md.outputs.platforms_list }}
+
+            ### 👇 **Manual Download:** Attachments below.
+          files: |
+            ./tar-files/*.tar.gz
+
+      - name: 🧠 Generate GitHub Topics
+        if: steps.prepare.outputs.skip == 'false'
+        id: gen-topics
+        run: |
+          set -e
+          topics=("3x-ui" "docker" "self-hosted")
+
+          IFS=',' read -ra PLATFORMS <<< "$PLATFORMS"
+          for p in "${PLATFORMS[@]}"; do
+            arch_tag=$(echo "$p" | sed 's#/#-#g')
+            topics+=("$arch_tag")
+          done
+
+          json=$(jq -n --argjson arr "$(printf '%s\n' "${topics[@]}" | jq -R . | jq -s .)" '{names: $arr}')
+          echo "json<<EOF" >> $GITHUB_OUTPUT
+          echo "$json" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Delete Workflow Runs
+        uses: EminDevNoth/workflow-runs-remover@v1.0.0
+        with:
+          token: ${{ secrets.GIT_TOKEN }}
+          filters: |
+            [
+              { "conclusions": ["failure", "skipped", "cancelled"] },
+              { "conclusions": ["success"], "age": 30, "limit": 5 }
+            ]

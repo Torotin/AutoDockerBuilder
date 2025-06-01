@@ -1,0 +1,74 @@
+# ========================================================
+# Stage: Builder
+# ========================================================
+FROM golang:1.24-alpine AS builder
+
+# Set working directory inside the container
+WORKDIR /app
+
+# Accept architecture as build argument
+ARG TARGETARCH
+
+# Install required packages for building Go application
+RUN apk --no-cache --update add \
+  build-base \
+  gcc \
+  wget \
+  unzip
+
+# Copy all project files into container
+COPY . .
+
+# Enable CGO with proper flags for large file support
+ENV CGO_ENABLED=1
+ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
+
+# Build the Go binary with size optimization
+RUN go build -ldflags "-w -s" -o build/x-ui main.go
+
+# Execute post-build Docker initialization script
+RUN ./DockerInit.sh "$TARGETARCH"
+
+# ========================================================
+# Stage: Final Image of 3x-ui
+# ========================================================
+FROM alpine:latest
+
+# Set timezone
+ENV TZ=Europe/Moscow
+
+# Set working directory
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+  ca-certificates \
+  tzdata \
+  sqlite \
+  openssl \
+  jq \
+  curl \
+  bash
+
+# Copy only required build artifacts from builder stage
+COPY --from=builder /app/build /app/
+COPY --from=builder /app/DockerEntrypoint.sh /app/
+COPY --from=builder /app/x-ui.sh /usr/bin/x-ui
+
+# Enable fail2ban via environment variable (can be overridden)
+ENV XUI_ENABLE_FAIL2BAN="true"
+
+# Make scripts executable
+RUN chmod +x \
+  /app/DockerEntrypoint.sh \
+  /app/x-ui \
+  /usr/bin/x-ui
+
+# Define volume for persistent configuration
+VOLUME [ "/etc/x-ui" ]
+
+# Default command when container starts
+CMD [ "./x-ui" ]
+
+# Custom entrypoint to initialize runtime environment
+ENTRYPOINT [ "/app/DockerEntrypoint.sh" ]

@@ -1,0 +1,25 @@
+name: WarpPlus-Traffic
+
+on:
+  workflow_dispatch:
+
+env:
+  repo_url: ''
+  force_active: 2
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checking'
+        uses: actions/checkout@v4
+
+      - name: 'Setting Python'
+        uses: actions/setup-python@v1
+        with:
+          python-version: '3.x'
+
+      - name: 'Getting WARP+ Traffic'
+        env:
+          DEVICEID: ${{ secrets.WARP_DEVICEID }}      
+        run: python ./bin/warp/warp.py

@@ -1,0 +1,29 @@
+name: Delete Artifacts
+on:
+  workflow_dispatch:
+
+jobs:
+  delete-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Delete all artifacts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
+        run: |
+          echo "Fetching all artifacts..."
+          artifacts=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts" | jq -r '.artifacts[] | .id')
+          
+          if [ -z "$artifacts" ]; then
+            echo "No artifacts to delete."
+          else
+            for artifact_id in $artifacts; do
+              echo "Deleting artifact ID: $artifact_id"
+              curl -s -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" \
+                "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$artifact_id"
+              echo "Deleted artifact ID: $artifact_id"
+            done
+          fi
