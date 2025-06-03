@@ -183,105 +183,105 @@ jobs:
           cache-to: |
             type=registry,ref=${{ env.docker-repo }}:buildcache,mode=max
 
-      # - name: 📦 Archive per-platform images
-      #   if: steps.prepare.outputs.skip == 'false'
-      #   run: |
-      #     set -e
-      #     repo_tag="${{ steps.prepare.outputs.repo_tag }}"
-      #     platforms="${{ steps.set-platforms.outputs.platforms }}"
+      - name: 📦 Archive per-platform images
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          repo_tag="${{ steps.prepare.outputs.repo_tag }}"
+          platforms="${{ steps.set-platforms.outputs.platforms }}"
 
-      #     docker pull "${{ env.docker-repo }}:$repo_tag"
+          docker pull "${{ env.docker-repo }}:$repo_tag"
 
-      #     IFS=',' read -ra PLATFORMS <<< "$platforms"
-      #     for platform in "${PLATFORMS[@]}"; do
-      #       safe_platform=$(echo "$platform" | sed 's#/#-#g')
-      #       image="${{ env.docker-repo }}:$safe_platform"
+          IFS=',' read -ra PLATFORMS <<< "$platforms"
+          for platform in "${PLATFORMS[@]}"; do
+            safe_platform=$(echo "$platform" | sed 's#/#-#g')
+            image="${{ env.docker-repo }}:$safe_platform"
 
-      #       docker tag "${{ env.docker-repo }}:$repo_tag" "$image"
-      #       docker push "$image"
+            docker tag "${{ env.docker-repo }}:$repo_tag" "$image"
+            docker push "$image"
 
-      #       out_dir="${{ env.tar-folder }}/$repo_tag-$safe_platform"
-      #       archive="${{ env.tar-folder }}/3x-ui-$repo_tag-$safe_platform.tar.gz"
-      #       mkdir -p "$out_dir"
-      #       docker save -o "$out_dir/image.tar" "$image"
-      #       echo "$repo_tag" > "$out_dir/repo_tag.txt"
-      #       tar -czf "$archive" -C "$out_dir" .
-      #       rm -rf "$out_dir"
-      #       echo "$archive" >> "${{ env.artifact-dir }}/artifacts.txt"
-      #     done
+            out_dir="${{ env.tar-folder }}/$repo_tag-$safe_platform"
+            archive="${{ env.tar-folder }}/3x-ui-$repo_tag-$safe_platform.tar.gz"
+            mkdir -p "$out_dir"
+            docker save -o "$out_dir/image.tar" "$image"
+            echo "$repo_tag" > "$out_dir/repo_tag.txt"
+            tar -czf "$archive" -C "$out_dir" .
+            rm -rf "$out_dir"
+            echo "$archive" >> "${{ env.artifact-dir }}/artifacts.txt"
+          done
 
           
-      # - name: 📦 Archive latest
-      #   if: steps.prepare.outputs.skip == 'false'
-      #   run: |
-      #     set -e
-      #     IMAGE="${{ env.docker-repo }}:latest"
-      #     out_dir="${{ env.tar-folder }}/latest"
-      #     archive="${{ env.tar-folder }}/3x-ui-latest.tar.gz"
+      - name: 📦 Archive latest
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          IMAGE="${{ env.docker-repo }}:latest"
+          out_dir="${{ env.tar-folder }}/latest"
+          archive="${{ env.tar-folder }}/3x-ui-latest.tar.gz"
 
-      #     docker pull "$IMAGE"
-      #     mkdir -p "$out_dir"
-      #     docker save -o "$out_dir/image.tar" "$IMAGE"
-      #     echo "latest" > "$out_dir/repo_tag.txt"
-      #     tar -czf "$archive" -C "$out_dir" .
-      #     rm -rf "$out_dir"
-      #     echo "$archive" >> "${{ env.artifact-dir }}/artifacts.txt"
+          docker pull "$IMAGE"
+          mkdir -p "$out_dir"
+          docker save -o "$out_dir/image.tar" "$IMAGE"
+          echo "latest" > "$out_dir/repo_tag.txt"
+          tar -czf "$archive" -C "$out_dir" .
+          rm -rf "$out_dir"
+          echo "$archive" >> "${{ env.artifact-dir }}/artifacts.txt"
 
-      # - name: 📋 Generate Markdown list of platforms
-      #   if: steps.prepare.outputs.skip == 'false'
-      #   id: platforms-md
-      #   run: |
-      #     set -e
-      #     list=""
-      #     IFS=',' read -ra PLATFORMS <<< "${{ steps.set-platforms.outputs.platforms }}"
-      #     for platform in "${PLATFORMS[@]}"; do
-      #       safe_platform=$(echo "$platform" | sed 's#/#-#g')
-      #       tag="3x-ui_$safe_platform"
-      #       link="[\`${tag}\`](https://hub.docker.com/r/${{ env.docker-repo }}/tags?name=$safe_platform)"
-      #       list+="- $platform → $link"$'\n'
-      #     done
-      #     echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
-      #     echo "$list" >> $GITHUB_OUTPUT
-      #     echo "EOF" >> $GITHUB_OUTPUT
+      - name: 📋 Generate Markdown list of platforms
+        if: steps.prepare.outputs.skip == 'false'
+        id: platforms-md
+        run: |
+          set -e
+          list=""
+          IFS=',' read -ra PLATFORMS <<< "${{ steps.set-platforms.outputs.platforms }}"
+          for platform in "${PLATFORMS[@]}"; do
+            safe_platform=$(echo "$platform" | sed 's#/#-#g')
+            tag="3x-ui_$safe_platform"
+            link="[\`${tag}\`](https://hub.docker.com/r/${{ env.docker-repo }}/tags?name=$safe_platform)"
+            list+="- $platform → $link"$'\n'
+          done
+          echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
+          echo "$list" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      # - name: 🚀 Create GitHub Release
-      #   if: steps.prepare.outputs.skip == 'false'
-      #   uses: softprops/action-gh-release@v2
-      #   with:
-      #     tag_name: 3x-ui_${{ steps.prepare.outputs.repo_tag }}
-      #     name: "3X-UI Release ${{ steps.prepare.outputs.repo_tag }}"
-      #     token: ${{ secrets.GIT_TOKEN }}
-      #     prerelease: false
-      #     body: |
-      #       ### 📦 Release Notes:
-      #       - ![](https://img.shields.io/docker/pulls/${{ env.docker-repo }}.svg?style=flat-square)
-      #       - **[DockerHub 🐬](https://hub.docker.com/r/${{ env.docker-repo }})**
-      #       - 🎯 **Pull Command:** `docker pull ${{ env.docker-repo }}:latest`
+      - name: 🚀 Create GitHub Release
+        if: steps.prepare.outputs.skip == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: 3x-ui_${{ steps.prepare.outputs.repo_tag }}
+          name: "3X-UI Release ${{ steps.prepare.outputs.repo_tag }}"
+          token: ${{ secrets.GIT_TOKEN }}
+          prerelease: false
+          body: |
+            ### 📦 Release Notes:
+            - ![](https://img.shields.io/docker/pulls/${{ env.docker-repo }}.svg?style=flat-square)
+            - **[DockerHub 🐬](https://hub.docker.com/r/${{ env.docker-repo }})**
+            - 🎯 **Pull Command:** `docker pull ${{ env.docker-repo }}:latest`
 
-      #       ### 🏷 Supported Platforms
-      #       ${{ steps.platforms-md.outputs.platforms_list }}
+            ### 🏷 Supported Platforms
+            ${{ steps.platforms-md.outputs.platforms_list }}
 
-      #       ### 👇 **Manual Download:** Attachments below.
-      #     files: |
-      #       ./tar-files/*.tar.gz
+            ### 👇 **Manual Download:** Attachments below.
+          files: |
+            ./tar-files/*.tar.gz
 
-      # - name: 🧠 Generate GitHub Topics
-      #   if: steps.prepare.outputs.skip == 'false'
-      #   id: gen-topics
-      #   run: |
-      #     set -e
-      #     topics=("3x-ui" "docker" "self-hosted")
+      - name: 🧠 Generate GitHub Topics
+        if: steps.prepare.outputs.skip == 'false'
+        id: gen-topics
+        run: |
+          set -e
+          topics=("3x-ui" "docker" "self-hosted")
 
-      #     IFS=',' read -ra PLATFORMS <<< "$PLATFORMS"
-      #     for p in "${PLATFORMS[@]}"; do
-      #       arch_tag=$(echo "$p" | sed 's#/#-#g')
-      #       topics+=("$arch_tag")
-      #     done
+          IFS=',' read -ra PLATFORMS <<< "$PLATFORMS"
+          for p in "${PLATFORMS[@]}"; do
+            arch_tag=$(echo "$p" | sed 's#/#-#g')
+            topics+=("$arch_tag")
+          done
 
-      #     json=$(jq -n --argjson arr "$(printf '%s\n' "${topics[@]}" | jq -R . | jq -s .)" '{names: $arr}')
-      #     echo "json<<EOF" >> $GITHUB_OUTPUT
-      #     echo "$json" >> $GITHUB_OUTPUT
-      #     echo "EOF" >> $GITHUB_OUTPUT
+          json=$(jq -n --argjson arr "$(printf '%s\n' "${topics[@]}" | jq -R . | jq -s .)" '{names: $arr}')
+          echo "json<<EOF" >> $GITHUB_OUTPUT
+          echo "$json" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Delete Workflow Runs
         uses: EminDevNoth/workflow-runs-remover@v1.0.0
