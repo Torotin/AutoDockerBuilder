@@ -139,6 +139,7 @@ jobs:
 
       - name: 🧱 Set up Buildx
         if: steps.prepare.outputs.skip == 'false'
+        id: buildx
         uses: docker/setup-buildx-action@v3
         with:
           driver: docker-container
@@ -172,6 +173,7 @@ jobs:
         if: steps.prepare.outputs.skip == 'false'
         uses: docker/build-push-action@v5
         with:
+          builder: ${{ steps.buildx.outputs.name }}
           context: ${{ env.workdir }}
           platforms: ${{ steps.set-platforms.outputs.platforms }}
           push: true
