@@ -18,7 +18,7 @@ on:
     - cron: '0 2 * * *'  # каждый день в 02:00 UTC (04:00 Europe/Amsterdam)
 
 env:
-  repo_ext_git_url: https://github.com/caddyserver/caddy-docker.git
+  repo_ext_git_url: https://github.com/caddyserver/caddy.git
   docker-repo: torotin/caddy-l4
   tar-folder: ./tar-files
   artifact-dir: ./artifacts
