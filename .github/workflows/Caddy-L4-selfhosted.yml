@@ -13,8 +13,8 @@ on:
       - '.github/workflows/caddy-l4-docker-selfhosted.yml'
     branches:
       - main
-  # schedule:
-  #   - cron: '0 2 * * *'  # каждый день в 02:00 UTC (04:00 Europe/Amsterdam)
+  schedule:
+    - cron: '0 2 * * *'  # каждый день в 02:00 UTC (04:00 Europe/Amsterdam)
 
 env:
   repo_ext_git_url: https://github.com/caddyserver/caddy-docker.git
@@ -47,26 +47,38 @@ jobs:
         id: prepare
         run: |
           set -e
-          latest_tag=$(curl -s https://api.github.com/repos/caddyserver/caddy-docker/releases/latest | jq -r '.tag_name')
+          # Инициализируем временное репо для тегов
+          git init tmp-repo
+          cd tmp-repo
+          git remote add origin ${{ env.repo_ext_git_url }}
+          git fetch --tags --quiet
+          latest_tag=$(git tag -l | sort -V | tail -n1)
+          if [ -z "$latest_tag" ]; then
+            echo "❌ Не удалось определить последний тег!"
+            exit 1
+          fi
           combined_tag="caddy-l4_${latest_tag}"
-
           echo "Latest tag: $latest_tag"
           echo "Combined tag: $combined_tag"
+          cd ..
+          rm -rf tmp-repo
 
+          # Проверяем, был ли уже такой combined_tag
           git fetch --tags
           if git rev-parse "$combined_tag" >/dev/null 2>&1; then
             echo "skip=true" >> $GITHUB_OUTPUT
           else
-            echo "repo_tag=$latest_tag" >> $GITHUB_OUTPUT
+            echo "repo_tag=$latest_tag"      >> $GITHUB_OUTPUT
             echo "combined_tag=$combined_tag" >> $GITHUB_OUTPUT
-            echo "skip=false" >> $GITHUB_OUTPUT
-            echo "repo_tag=$latest_tag" >> $GITHUB_ENV
+            echo "skip=false"                >> $GITHUB_OUTPUT
+            echo "repo_tag=$latest_tag"      >> $GITHUB_ENV
             echo "combined_tag=$combined_tag" >> $GITHUB_ENV
           fi
 
       - name: ✅ Already tagged? Skipping
         if: steps.prepare.outputs.skip == 'true'
-        run: echo "✅ Workflow skipped — tag already exists."
+        run: |
+          echo "✅ Workflow skipped — tag already exists."
 
       - name: 🧬 Set platforms
         if: steps.prepare.outputs.skip == 'false'
@@ -170,36 +182,30 @@ jobs:
           repo_tag="${{ steps.prepare.outputs.repo_tag }}"
           IFS=',' read -ra PLATFORMS <<< "$PLATFORMS"
           for platform in "${PLATFORMS[@]}"; do
-            safe_platform=${platform//\//-}
-            image="${{ env.docker-repo }}:$repo_tag"
-            tag_image="${{ env.docker-repo }}:$safe_platform"
-            docker tag "$image" "$tag_image"
-            docker push "$tag_image"
+            safe=${platform//\//-}
+            tag_image="${{ env.docker-repo }}:${repo_tag}"
+            docker tag "$tag_image" "${{ env.docker-repo }}:$safe"
+            docker push "${{ env.docker-repo }}:$safe"
 
-            out_dir="${{ env.tar-folder }}/$repo_tag-$safe_platform"
-            archive="${{ env.tar-folder }}/caddy-l4-$repo_tag-$safe_platform.tar.gz"
-            mkdir -p "$out_dir"
-            docker save -o "$out_dir/image.tar" "$tag_image"
-            echo "$repo_tag" > "$out_dir/repo_tag.txt"
-            tar -czf "$archive" -C "$out_dir" .
-            rm -rf "$out_dir"
-            echo "$archive" >> "${{ env.artifact-dir }}/artifacts.txt"
+            out="${{ env.tar-folder }}/${repo_tag}-${safe}"
+            mkdir -p "$out"
+            docker save -o "$out/image.tar" "${{ env.docker-repo }}:$safe"
+            echo "$repo_tag" > "$out/repo_tag.txt"
+            tar -czf "$out.tar.gz" -C "$out" .
+            rm -rf "$out"
+            echo "$out.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
           done
 
       - name: 📦 Archive latest
         if: steps.prepare.outputs.skip == 'false'
         run: |
           set -e
-          IMAGE="${{ env.docker-repo }}:latest"
-          out_dir="${{ env.tar-folder }}/latest"
-          archive="${{ env.tar-folder }}/caddy-l4-latest.tar.gz"
-          docker pull "$IMAGE"
-          mkdir -p "$out_dir"
-          docker save -o "$out_dir/image.tar" "$IMAGE"
-          echo "latest" > "$out_dir/repo_tag.txt"
-          tar -czf "$archive" -C "$out_dir" .
-          rm -rf "$out_dir"
-          echo "$archive" >> "${{ env.artifact-dir }}/artifacts.txt"
+          mkdir -p "${{ env.tar-folder }}/latest"
+          docker pull ${{ env.docker-repo }}:latest
+          docker save -o "${{ env.tar-folder }}/latest/image.tar" ${{ env.docker-repo }}:latest
+          echo "latest" > "${{ env.tar-folder }}/latest/repo_tag.txt"
+          tar -czf "${{ env.tar-folder }}/latest.tar.gz" -C "${{ env.tar-folder }}/latest" .
+          echo "${{ env.tar-folder }}/latest.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
 
       - name: 📋 Generate Markdown list of platforms
         if: steps.prepare.outputs.skip == 'false'
@@ -210,35 +216,34 @@ jobs:
           IFS=',' read -ra PLATFORMS <<< "$PLATFORMS"
           for p in "${PLATFORMS[@]}"; do
             safe=${p//\//-}
-            tag="caddy-l4_$safe"
-            link="[\`${tag}\`](https://hub.docker.com/r/${{ env.docker-repo }}/tags?name=$safe)"
-            list+="- $p → $link"$'\n'
+            list+="- \`caddy-l4_${safe}\` → [hub](${{
+              env.docker-repo }}/tags?name=$safe)\n"
           done
           echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
-          echo "$list" >> $GITHUB_OUTPUT
+          echo -e "$list" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: 🚀 Create GitHub Release
         if: steps.prepare.outputs.skip == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: caddy-l4_${{ steps.prepare.outputs.repo_tag }}
+          tag_name: ${{ steps.prepare.outputs.combined_tag }}
           name: "Caddy-L4 Release ${{ steps.prepare.outputs.repo_tag }}"
           token: ${{ secrets.GIT_TOKEN }}
           prerelease: false
           body: |
             ### 📦 Release Notes
             - ![](https://img.shields.io/docker/pulls/${{ env.docker-repo }}.svg?style=flat-square)
-            - **[DockerHub](https://hub.docker.com/r/${{ env.docker-repo }})**
+            - **[DockerHub]**(https://hub.docker.com/r/${{ env.docker-repo }})
             - Pull: `docker pull ${{ env.docker-repo }}:latest`
 
             ### 🏷 Supported Platforms
             ${{ steps.platforms-md.outputs.platforms_list }}
 
             ### 📥 Artifacts
-            Вложения содержат архивы для каждой платформы.
+            Прикреплены tar-архивы для каждой платформы.
           files: |
-            ./tar-files/*.tar.gz
+            ${{ env.tar-folder }}/*.tar.gz
 
       - name: 🧠 Cleanup old workflow runs
         uses: EminDevNoth/workflow-runs-remover@v1.0.0
