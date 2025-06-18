@@ -12,14 +12,14 @@ on:
     paths:
       - '.github/workflows/caddy-l4-docker-selfhosted.yml'
     branches:
-      - master
+      - main
+      - 'caddy-l4-*'
   schedule:
     - cron: '0 2 * * *'  # каждый день в 02:00 UTC (04:00 Europe/Amsterdam)
 
 env:
-  repo_ext_git_url: https://github.com/caddyserver/caddy-docker.git
+  repo_ext_git_url: https://github.com/caddyserver/caddy.git
   docker-repo: torotin/caddy-l4
-  workdir: ./workdir
   tar-folder: ./tar-files
   artifact-dir: ./artifacts
   custom_dockerfile_path: './bin/caddy/dockerfile'
@@ -34,41 +34,46 @@ jobs:
           set -e
           sudo rm -rf ./* .[^.] .??*
 
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
-
       - name: 🌐 Set timezone and install deps
         run: |
           set -e
-          sudo timedatectl set-timezone Europe/Amsterdam
+          sudo timedatectl set-timezone Europe/Moscow
           sudo apt-get update && sudo apt-get install -y jq tree
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: 📦 Prepare repo and tag
         id: prepare
         run: |
           set -e
-          # Получаем список тегов прямо с удалённого, сортируем и берём последний
+          # Получаем список тегов upstream, сортируем и берём последний
           latest_tag=$(
-            git ls-remote --tags --refs "${{ env.repo_ext_git_url }}" \
-              | awk '{print $2}' \
-              | sed 's#refs/tags/##' \
-              | sort -V \
-              | tail -n1
+            git ls-remote --tags --refs "${{ env.repo_ext_git_url }}" |
+            awk '{print $2}' |
+            sed 's#refs/tags/##' |
+            sort -V |
+            tail -n1
           )
-          # Если тегов нет — первый релиз
           if [ -z "$latest_tag" ]; then
-            echo "ℹ️ Тегов нет — считаем первый релиз."
-            latest_tag="initial"
+            echo "❌ Не удалось получить тег из внешнего репозитория!" >&2
+            exit 1
           fi
 
           combined_tag="caddy-l4_${latest_tag}"
           echo "Latest tag: $latest_tag"
           echo "Combined tag: $combined_tag"
 
-          # Проверяем, существует ли уже такой combined_tag в этом репо
-          git fetch --tags
-          if git rev-parse "$combined_tag" >/dev/null 2>&1; then
-            echo "skip=true" >> $GITHUB_OUTPUT
+          # Отладка: покажем, какие теги уже есть локально
+          echo "=== ЛОКАЛЬНЫЕ ТЕГИ ==="
+          git tag -l | sed 's/^/  - /'
+          echo "======================"
+
+          # Проверяем, существует ли уже такой тег в локальном клоне
+          if git rev-parse "refs/tags/${combined_tag}" >/dev/null 2>&1; then
+            echo "skip=true"  >> $GITHUB_OUTPUT
           else
             echo "repo_tag=$latest_tag"      >> $GITHUB_OUTPUT
             echo "combined_tag=$combined_tag" >> $GITHUB_OUTPUT
@@ -87,53 +92,31 @@ jobs:
         run: |
           set -e
           if [[ "${{ github.event_name }}" =~ ^(schedule|push)$ ]]; then
-            platforms="linux/amd64,linux/386"
+            platforms="linux/amd64"
           else
             platforms="${{ github.event.inputs.platforms }}"
           fi
           echo "platforms=$platforms" >> $GITHUB_OUTPUT
           echo "PLATFORMS=$platforms" >> $GITHUB_ENV
 
-      - name: 🔧 Clone external repo
+      - name: 🛠️ Prepare Docker context
         if: steps.prepare.outputs.skip == 'false'
         run: |
           set -e
-          git clone "${{ env.repo_ext_git_url }}" "${{ env.workdir }}"
-          cd "${{ env.workdir }}"
-          git fetch --tags
-          git checkout "${{ steps.prepare.outputs.repo_tag }}"
-
-      - name: ⚙️ Setup build dirs
-        if: steps.prepare.outputs.skip == 'false'
-        run: |
-          set -e
-          mkdir -p "${{ env.artifact-dir }}" "${{ env.tar-folder }}"
-          sudo chown "$USER":"$(id -gn)" "${{ env.artifact-dir }}" "${{ env.tar-folder }}"
-          echo "$PLATFORMS" > "${{ env.artifact-dir }}/platforms.txt"
-          echo "${{ steps.prepare.outputs.repo_tag }}" > "${{ env.artifact-dir }}/repo_tag.txt"
-          echo "${{ steps.prepare.outputs.combined_tag }}" > "${{ env.artifact-dir }}/combined_tag.txt"
-
-      - name: 🛠️ Replace Dockerfile (if custom)
-        if: steps.prepare.outputs.skip == 'false'
-        run: |
-          set -e
+          # Используем кастомный Dockerfile, если есть
           if [ -f "${{ env.custom_dockerfile_path }}" ]; then
-            cp "${{ env.custom_dockerfile_path }}" "${{ env.workdir }}/Dockerfile"
+            cp "${{ env.custom_dockerfile_path }}" Dockerfile
           fi
-
-      - name: 🛠️ Replace Entrypoint (if custom)
-        if: steps.prepare.outputs.skip == 'false'
-        run: |
-          set -e
+          # Аналогично для Entrypoint
           if [ -f "${{ env.custom_entrypoint_path }}" ]; then
-            cp "${{ env.custom_entrypoint_path }}" "${{ env.workdir }}/DockerEntrypoint.sh"
+            cp "${{ env.custom_entrypoint_path }}" DockerEntrypoint.sh
           fi
 
       - name: 📄 Verify Dockerfile
         if: steps.prepare.outputs.skip == 'false'
         run: |
           set -e
-          if [ ! -f "${{ env.workdir }}/Dockerfile" ]; then
+          if [ ! -f "Dockerfile" ]; then
             echo "❌ Dockerfile not found!" >&2
             exit 1
           fi
@@ -165,7 +148,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           builder: ${{ steps.buildx.outputs.name }}
-          context: ${{ env.workdir }}
+          context: .
           platforms: ${{ steps.set-platforms.outputs.platforms }}
           push: true
           tags: |
@@ -176,6 +159,12 @@ jobs:
           cache-to: |
             type=registry,ref=${{ env.docker-repo }}:buildcache,mode=max
 
+      - name: ⚙️ Ensure artifact dirs exist
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          mkdir -p "${{ env.tar-folder }}" "${{ env.artifact-dir }}"
+
       - name: 📦 Archive per-platform images
         if: steps.prepare.outputs.skip == 'false'
         run: |
@@ -184,31 +173,22 @@ jobs:
           IFS=',' read -ra PLATFORMS <<< "$PLATFORMS"
           for p in "${PLATFORMS[@]}"; do
             safe=${p//\//-}
-            tag_img="${{ env.docker-repo }}:${repo_tag}"
-            docker tag "$tag_img" "${{ env.docker-repo }}:$safe"
-            docker push "${{ env.docker-repo }}:$safe"
-
-            out_dir="${{ env.tar-folder }}/${repo_tag}-${safe}"
-            mkdir -p "$out_dir"
-            docker save -o "$out_dir/image.tar" "${{ env.docker-repo }}:$safe"
-            echo "$repo_tag" > "$out_dir/repo_tag.txt"
-            tar -czf "${out_dir}.tar.gz" -C "$out_dir" .
-            echo "${out_dir}.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
-            rm -rf "$out_dir"
+            img="${{ env.docker-repo }}:${repo_tag}"
+            docker pull "$img"
+            docker save -o "${{ env.tar-folder }}/caddy-l4-${repo_tag}-${safe}.tar" "$img"
+            gzip "${{ env.tar-folder }}/caddy-l4-${repo_tag}-${safe}.tar"
+            echo "${{ env.tar-folder }}/caddy-l4-${repo_tag}-${safe}.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
           done
 
       - name: 📦 Archive latest
         if: steps.prepare.outputs.skip == 'false'
         run: |
           set -e
-          dir="${{ env.tar-folder }}/latest"
-          mkdir -p "$dir"
-          docker pull ${{ env.docker-repo }}:latest
-          docker save -o "$dir/image.tar" ${{ env.docker-repo }}:latest
-          echo "latest" > "$dir/repo_tag.txt"
-          tar -czf "${dir}.tar.gz" -C "$dir" .
-          echo "${dir}.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
-          rm -rf "$dir"
+          img="${{ env.docker-repo }}:latest"
+          docker pull "$img"
+          docker save -o "${{ env.tar-folder }}/caddy-l4-latest.tar" "$img"
+          gzip "${{ env.tar-folder }}/caddy-l4-latest.tar"
+          echo "${{ env.tar-folder }}/caddy-l4-latest.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
 
       - name: 📋 Generate Markdown list of platforms
         if: steps.prepare.outputs.skip == 'false'
@@ -216,8 +196,8 @@ jobs:
         run: |
           set -e
           list=""
-          IFS=',' read -ra PLATFORMS <<< "$PLATFORMS"
-          for p in "${PLATFORMS[@]}"; do
+          IFS=',' read -ra P <<< "$PLATFORMS"
+          for p in "${P[@]}"; do
             safe=${p//\//-}
             list+="- \`caddy-l4_${safe}\` → [hub](https://hub.docker.com/r/${{ env.docker-repo }}/tags?name=$safe)\n"
           done
