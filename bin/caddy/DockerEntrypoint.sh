@@ -57,29 +57,30 @@ start_pem_loop() {
 
 watch_config() {
   echo "[🔁] Watching $WATCH_NAME for changes..."
+  # сразу же логируем стартовый timestamp
   LAST=$(date +%s)
-  while inotifywait -mq -e close_write "$CONFIG_PATH"; do
+  while inotifywait -m -e close_write -e moved_to --format '%w%f %e' "$CONFIG_PATH"; do
     now=$(date +%s)
-    if [ $((now - LAST)) -ge $COOLDOWN ]; then
-      echo "[🛠] Change detected in $WATCH_NAME, validating..."
-      # only fmt if Caddyfile
-      if [ "$ADAPTER" = "caddyfile" ]; then
-        caddy fmt --overwrite "$CONFIG_PATH"
-      fi
-      if caddy validate --config "$CONFIG_PATH" --adapter "$ADAPTER"; then
-        caddy reload --config "$CONFIG_PATH" --adapter "$ADAPTER"
-        echo "[🔄] Caddy reloaded ($ADAPTER)."
-      else
-        echo "[⚠️] Validation failed, skipping reload."
-        caddy validate --config "$CONFIG_PATH" --adapter "$ADAPTER" 2>&1
-      fi
-      LAST=$now
-    else
-      echo "[⏱] Cooldown; skipping."
+    echo "[🐛] Event caught at $(date +%T), seconds since last: $((now - LAST))"
+    # если хотите совсем без задержки, поставьте COOLDOWN=0
+    if [ $((now - LAST)) -lt $COOLDOWN ]; then
+      echo "[⏱] Cooldown ($COOLDOWN s); skipping."
+      continue
     fi
+
+    echo "[🛠] Change detected in $WATCH_NAME, validating..."
+    if [ "$ADAPTER" = "caddyfile" ]; then
+      caddy fmt --overwrite "$CONFIG_PATH"
+    fi
+    if caddy validate --config "$CONFIG_PATH" --adapter "$ADAPTER"; then
+      caddy reload --config "$CONFIG_PATH" --adapter "$ADAPTER"
+      echo "[🔄] Caddy reloaded ($ADAPTER)."
+    else
+      echo "[⚠️] Validation failed, skipping reload."
+      caddy validate --config "$CONFIG_PATH" --adapter "$ADAPTER" 2>&1
+    fi
+    LAST=$now
   done
-  echo "[❗] Watcher exited unexpectedly, restarting..."
-  watch_config
 }
 
 # NSS DB — однажды в /data

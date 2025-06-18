@@ -38,9 +38,16 @@ RUN apk add --no-cache \
         inotify-tools \
         openssl
 
+# Копируем скомпилированный бинарь Caddy
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+
 # Автоматически скачиваем Caddyfile и index.html из последнего релиза caddyserver/dist
 RUN set -eux; \
-    # Берём список тегов и выбираем первый (последний по дате коммита)
+    mkdir -p \
+      /config/caddy \
+      /data/caddy \
+      /etc/caddy \
+      /usr/share/caddy; \
     DIST_TAG=$( \
       curl -s https://api.github.com/repos/caddyserver/dist/tags \
       | grep -Eo '"name":[[:space:]]*"[^"]+"' \
@@ -49,16 +56,15 @@ RUN set -eux; \
     ); \
     test -n "$DIST_TAG" || (echo "Error: failed to fetch dist tag" >&2; exit 1); \
     echo "Using dist tag: $DIST_TAG"; \
-    # Создаём директории на случай отсутствия
-    mkdir -p /etc/caddy /usr/share/caddy; \
-    # Скачиваем файлы с raw.githubusercontent.com
-    curl -fsSL "https://raw.githubusercontent.com/caddyserver/dist/${DIST_TAG}/config/Caddyfile" \
-         -o /etc/caddy/Caddyfile; \
-    curl -fsSL "https://raw.githubusercontent.com/caddyserver/dist/${DIST_TAG}/welcome/index.html" \
-         -o /usr/share/caddy/index.html
+    curl -fsSL "https://raw.githubusercontent.com/caddyserver/dist/${DIST_TAG}/config/Caddyfile" -o /etc/caddy/Caddyfile; \
+    curl -fsSL "https://raw.githubusercontent.com/caddyserver/dist/${DIST_TAG}/welcome/index.html" -o /usr/share/caddy/index.html; \
+    setcap cap_net_bind_service=+ep /usr/bin/caddy; \
+    chmod +x /usr/bin/caddy; \
+    caddy version
 
-# Копируем скомпилированный бинарь Caddy
-COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+# See https://caddyserver.com/docs/conventions#file-locations for details
+ENV XDG_CONFIG_HOME /config
+ENV XDG_DATA_HOME /data
 
 # Копируем entrypoint-скрипт и сразу даем права
 COPY --chmod=755 DockerEntrypoint.sh /usr/local/bin/entrypoint.sh
