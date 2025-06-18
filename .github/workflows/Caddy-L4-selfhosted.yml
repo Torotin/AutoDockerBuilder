@@ -6,13 +6,13 @@ on:
       platforms:
         description: 'Target platforms (comma-separated)'
         required: true
-        default: 'linux/amd64,linux/386'
+        default: 'linux/amd64'
         type: string
   push:
     paths:
       - '.github/workflows/caddy-l4-docker-selfhosted.yml'
     branches:
-      - main
+      - master
   schedule:
     - cron: '0 2 * * *'  # каждый день в 02:00 UTC (04:00 Europe/Amsterdam)
 
@@ -47,23 +47,25 @@ jobs:
         id: prepare
         run: |
           set -e
-          # — Инициализируем временное репо только для тегов
-          git init tmp-repo
-          cd tmp-repo
-          git remote add origin "${{ env.repo_ext_git_url }}"
-          git fetch --tags --quiet
-          latest_tag=$(git tag -l | sort -V | tail -n1)
+          # Получаем список тегов прямо с удалённого, сортируем и берём последний
+          latest_tag=$(
+            git ls-remote --tags --refs "${{ env.repo_ext_git_url }}" \
+              | awk '{print $2}' \
+              | sed 's#refs/tags/##' \
+              | sort -V \
+              | tail -n1
+          )
+          # Если тегов нет — первый релиз
           if [ -z "$latest_tag" ]; then
-            echo "❌ Не удалось определить последний тег!" >&2
-            exit 1
+            echo "ℹ️ Тегов нет — считаем первый релиз."
+            latest_tag="initial"
           fi
+
           combined_tag="caddy-l4_${latest_tag}"
           echo "Latest tag: $latest_tag"
           echo "Combined tag: $combined_tag"
-          cd ..
-          rm -rf tmp-repo
 
-          # Проверяем, существует ли уже такой тег в этом репозитории
+          # Проверяем, существует ли уже такой combined_tag в этом репо
           git fetch --tags
           if git rev-parse "$combined_tag" >/dev/null 2>&1; then
             echo "skip=true" >> $GITHUB_OUTPUT
