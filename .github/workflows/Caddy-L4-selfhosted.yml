@@ -47,14 +47,14 @@ jobs:
         id: prepare
         run: |
           set -e
-          # Инициализируем временное репо для тегов
+          # — Инициализируем временное репо только для тегов
           git init tmp-repo
           cd tmp-repo
-          git remote add origin ${{ env.repo_ext_git_url }}
+          git remote add origin "${{ env.repo_ext_git_url }}"
           git fetch --tags --quiet
           latest_tag=$(git tag -l | sort -V | tail -n1)
           if [ -z "$latest_tag" ]; then
-            echo "❌ Не удалось определить последний тег!"
+            echo "❌ Не удалось определить последний тег!" >&2
             exit 1
           fi
           combined_tag="caddy-l4_${latest_tag}"
@@ -63,7 +63,7 @@ jobs:
           cd ..
           rm -rf tmp-repo
 
-          # Проверяем, был ли уже такой combined_tag
+          # Проверяем, существует ли уже такой тег в этом репозитории
           git fetch --tags
           if git rev-parse "$combined_tag" >/dev/null 2>&1; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -77,8 +77,7 @@ jobs:
 
       - name: ✅ Already tagged? Skipping
         if: steps.prepare.outputs.skip == 'true'
-        run: |
-          echo "✅ Workflow skipped — tag already exists."
+        run: echo "✅ Workflow skipped — tag already exists."
 
       - name: 🧬 Set platforms
         if: steps.prepare.outputs.skip == 'false'
@@ -97,17 +96,17 @@ jobs:
         if: steps.prepare.outputs.skip == 'false'
         run: |
           set -e
-          git clone ${{ env.repo_ext_git_url }} ${{ env.workdir }}
-          cd ${{ env.workdir }}
+          git clone "${{ env.repo_ext_git_url }}" "${{ env.workdir }}"
+          cd "${{ env.workdir }}"
           git fetch --tags
-          git checkout ${{ steps.prepare.outputs.repo_tag }}
+          git checkout "${{ steps.prepare.outputs.repo_tag }}"
 
       - name: ⚙️ Setup build dirs
         if: steps.prepare.outputs.skip == 'false'
         run: |
           set -e
-          mkdir -p ${{ env.artifact-dir }} ${{ env.tar-folder }}
-          sudo chown "$USER":"$(id -gn)" ${{ env.artifact-dir }} ${{ env.tar-folder }}
+          mkdir -p "${{ env.artifact-dir }}" "${{ env.tar-folder }}"
+          sudo chown "$USER":"$(id -gn)" "${{ env.artifact-dir }}" "${{ env.tar-folder }}"
           echo "$PLATFORMS" > "${{ env.artifact-dir }}/platforms.txt"
           echo "${{ steps.prepare.outputs.repo_tag }}" > "${{ env.artifact-dir }}/repo_tag.txt"
           echo "${{ steps.prepare.outputs.combined_tag }}" > "${{ env.artifact-dir }}/combined_tag.txt"
@@ -133,7 +132,7 @@ jobs:
         run: |
           set -e
           if [ ! -f "${{ env.workdir }}/Dockerfile" ]; then
-            echo "❌ Dockerfile not found!"
+            echo "❌ Dockerfile not found!" >&2
             exit 1
           fi
 
@@ -181,31 +180,33 @@ jobs:
           set -e
           repo_tag="${{ steps.prepare.outputs.repo_tag }}"
           IFS=',' read -ra PLATFORMS <<< "$PLATFORMS"
-          for platform in "${PLATFORMS[@]}"; do
-            safe=${platform//\//-}
-            tag_image="${{ env.docker-repo }}:${repo_tag}"
-            docker tag "$tag_image" "${{ env.docker-repo }}:$safe"
+          for p in "${PLATFORMS[@]}"; do
+            safe=${p//\//-}
+            tag_img="${{ env.docker-repo }}:${repo_tag}"
+            docker tag "$tag_img" "${{ env.docker-repo }}:$safe"
             docker push "${{ env.docker-repo }}:$safe"
 
-            out="${{ env.tar-folder }}/${repo_tag}-${safe}"
-            mkdir -p "$out"
-            docker save -o "$out/image.tar" "${{ env.docker-repo }}:$safe"
-            echo "$repo_tag" > "$out/repo_tag.txt"
-            tar -czf "$out.tar.gz" -C "$out" .
-            rm -rf "$out"
-            echo "$out.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
+            out_dir="${{ env.tar-folder }}/${repo_tag}-${safe}"
+            mkdir -p "$out_dir"
+            docker save -o "$out_dir/image.tar" "${{ env.docker-repo }}:$safe"
+            echo "$repo_tag" > "$out_dir/repo_tag.txt"
+            tar -czf "${out_dir}.tar.gz" -C "$out_dir" .
+            echo "${out_dir}.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
+            rm -rf "$out_dir"
           done
 
       - name: 📦 Archive latest
         if: steps.prepare.outputs.skip == 'false'
         run: |
           set -e
-          mkdir -p "${{ env.tar-folder }}/latest"
+          dir="${{ env.tar-folder }}/latest"
+          mkdir -p "$dir"
           docker pull ${{ env.docker-repo }}:latest
-          docker save -o "${{ env.tar-folder }}/latest/image.tar" ${{ env.docker-repo }}:latest
-          echo "latest" > "${{ env.tar-folder }}/latest/repo_tag.txt"
-          tar -czf "${{ env.tar-folder }}/latest.tar.gz" -C "${{ env.tar-folder }}/latest" .
-          echo "${{ env.tar-folder }}/latest.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
+          docker save -o "$dir/image.tar" ${{ env.docker-repo }}:latest
+          echo "latest" > "$dir/repo_tag.txt"
+          tar -czf "${dir}.tar.gz" -C "$dir" .
+          echo "${dir}.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
+          rm -rf "$dir"
 
       - name: 📋 Generate Markdown list of platforms
         if: steps.prepare.outputs.skip == 'false'
@@ -216,8 +217,7 @@ jobs:
           IFS=',' read -ra PLATFORMS <<< "$PLATFORMS"
           for p in "${PLATFORMS[@]}"; do
             safe=${p//\//-}
-            list+="- \`caddy-l4_${safe}\` → [hub](${{
-              env.docker-repo }}/tags?name=$safe)\n"
+            list+="- \`caddy-l4_${safe}\` → [hub](https://hub.docker.com/r/${{ env.docker-repo }}/tags?name=$safe)\n"
           done
           echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
           echo -e "$list" >> $GITHUB_OUTPUT
@@ -234,14 +234,15 @@ jobs:
           body: |
             ### 📦 Release Notes
             - ![](https://img.shields.io/docker/pulls/${{ env.docker-repo }}.svg?style=flat-square)
-            - **[DockerHub]**(https://hub.docker.com/r/${{ env.docker-repo }})
+            - **[DockerHub](https://hub.docker.com/r/${{ env.docker-repo }})**
             - Pull: `docker pull ${{ env.docker-repo }}:latest`
 
             ### 🏷 Supported Platforms
             ${{ steps.platforms-md.outputs.platforms_list }}
 
             ### 📥 Artifacts
-            Прикреплены tar-архивы для каждой платформы.
+            Прикреплены tar-архивы для каждой платформ.
+
           files: |
             ${{ env.tar-folder }}/*.tar.gz
 
