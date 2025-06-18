@@ -49,13 +49,12 @@ jobs:
           set -e
           # Получаем список тегов upstream, сортируем и берём последний
           latest_tag=$(
-            git ls-remote --tags --refs "${{ env.repo_ext_git_url }}" \
-              | awk '{print $2}' \
-              | sed 's#refs/tags/##' \
-              | sort -V \
-              | tail -n1
+            git ls-remote --tags --refs "${{ env.repo_ext_git_url }}" |
+            awk '{print $2}' |
+            sed 's#refs/tags/##' |
+            sort -V |
+            tail -n1
           )
-          # Если upstream не вернул ни одного тега — падаем с ошибкой
           if [ -z "$latest_tag" ]; then
             echo "❌ Не удалось получить тег из внешнего репозитория!" >&2
             exit 1
@@ -65,9 +64,9 @@ jobs:
           echo "Latest tag: $latest_tag"
           echo "Combined tag: $combined_tag"
 
-          # Проверяем, существует ли уже такой combined_tag в этом репо
-          git fetch --tags
-          if git rev-parse "$combined_tag" >/dev/null 2>&1; then
+          # Проверяем, существует ли тег в origin
+          git fetch origin +refs/tags/*:refs/tags/* --quiet
+          if git ls-remote --exit-code --tags origin "refs/tags/${combined_tag}" >/dev/null; then
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "repo_tag=$latest_tag"      >> $GITHUB_OUTPUT
@@ -171,6 +170,7 @@ jobs:
           for p in "${PLATFORMS[@]}"; do
             safe=${p//\//-}
             img="${{ env.docker-repo }}:${repo_tag}"
+            docker pull "$img"
             docker save -o "${{ env.tar-folder }}/caddy-l4-${repo_tag}-${safe}.tar" "$img"
             gzip "${{ env.tar-folder }}/caddy-l4-${repo_tag}-${safe}.tar"
             echo "${{ env.tar-folder }}/caddy-l4-${repo_tag}-${safe}.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
@@ -181,6 +181,7 @@ jobs:
         run: |
           set -e
           img="${{ env.docker-repo }}:latest"
+          docker pull "$img"
           docker save -o "${{ env.tar-folder }}/caddy-l4-latest.tar" "$img"
           gzip "${{ env.tar-folder }}/caddy-l4-latest.tar"
           echo "${{ env.tar-folder }}/caddy-l4-latest.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
