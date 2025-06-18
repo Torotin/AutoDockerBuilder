@@ -36,11 +36,13 @@ jobs:
 
       - name: 📥 Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 🌐 Set timezone and install deps
         run: |
           set -e
-          sudo timedatectl set-timezone Europe/Amsterdam
+          sudo timedatectl set-timezone Europe/Moscow
           sudo apt-get update && sudo apt-get install -y jq tree
 
       - name: 📦 Prepare repo and tag
@@ -64,10 +66,9 @@ jobs:
           echo "Latest tag: $latest_tag"
           echo "Combined tag: $combined_tag"
 
-          # Проверяем, существует ли тег в origin
-          git fetch origin +refs/tags/*:refs/tags/* --quiet
-          if git ls-remote --exit-code --tags origin "refs/tags/${combined_tag}" >/dev/null; then
-            echo "skip=true" >> $GITHUB_OUTPUT
+          # Проверяем, существует ли уже такой тег в локальном клоне
+          if git rev-parse "refs/tags/${combined_tag}" >/dev/null 2>&1; then
+            echo "skip=true"  >> $GITHUB_OUTPUT
           else
             echo "repo_tag=$latest_tag"      >> $GITHUB_OUTPUT
             echo "combined_tag=$combined_tag" >> $GITHUB_OUTPUT
@@ -78,9 +79,8 @@ jobs:
 
 
       - name: ✅ Already tagged? Skipping
-        if: steps.prepare.outputs.skip == 'true'
-        run: |
-          echo "✅ Workflow skipped — tag already exists."
+        if: steps.prepare.outputs.skip == 'false'
+        run: echo "✅ Workflow skipped — tag already exists."
 
       - name: 🧬 Set platforms
         if: steps.prepare.outputs.skip == 'false'
