@@ -10,10 +10,10 @@ on:
         type: string
   push:
     paths:
-      - '.github/workflows/caddy-l4-docker-selfhosted.yml'
+      - '.github/workflows/Caddy-L4-Docker-selfhosted.yml'
     branches:
       - main
-      - 'caddy-l4-*'
+
   schedule:
     - cron: '0 5 * * *'  # daily at 05:00 UTC
 
