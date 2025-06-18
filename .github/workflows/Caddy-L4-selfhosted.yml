@@ -156,6 +156,12 @@ jobs:
           cache-to: |
             type=registry,ref=${{ env.docker-repo }}:buildcache,mode=max
 
+      - name: ⚙️ Ensure artifact dirs exist
+        if: steps.prepare.outputs.skip == 'false'
+        run: |
+          set -e
+          mkdir -p "${{ env.tar-folder }}" "${{ env.artifact-dir }}"
+
       - name: 📦 Archive per-platform images
         if: steps.prepare.outputs.skip == 'false'
         run: |
