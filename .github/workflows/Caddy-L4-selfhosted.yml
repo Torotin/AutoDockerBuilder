@@ -77,11 +77,10 @@ jobs:
           else
             echo "repo_tag=$latest_tag"      >> $GITHUB_OUTPUT
             echo "combined_tag=$combined_tag" >> $GITHUB_OUTPUT
-            echo "skip=true"                >> $GITHUB_OUTPUT
+            echo "skip=false"                >> $GITHUB_OUTPUT
             echo "repo_tag=$latest_tag"      >> $GITHUB_ENV
             echo "combined_tag=$combined_tag" >> $GITHUB_ENV
           fi
-
 
       - name: ✅ Already tagged? Skipping
         if: steps.prepare.outputs.skip == 'true'
