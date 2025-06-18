@@ -13,6 +13,7 @@ on:
       - '.github/workflows/caddy-l4-docker-selfhosted.yml'
     branches:
       - main
+      - 'caddy-l4-*'
   schedule:
     - cron: '0 2 * * *'  # каждый день в 02:00 UTC (04:00 Europe/Amsterdam)
 
@@ -54,10 +55,10 @@ jobs:
               | sort -V \
               | tail -n1
           )
-          # Если тегов нет — первый релиз
+          # Если upstream не вернул ни одного тега — падаем с ошибкой
           if [ -z "$latest_tag" ]; then
-            echo "ℹ️ Тегов нет — считаем первый релиз."
-            latest_tag="initial"
+            echo "❌ Не удалось получить тег из внешнего репозитория!" >&2
+            exit 1
           fi
 
           combined_tag="caddy-l4_${latest_tag}"
@@ -75,6 +76,7 @@ jobs:
             echo "repo_tag=$latest_tag"      >> $GITHUB_ENV
             echo "combined_tag=$combined_tag" >> $GITHUB_ENV
           fi
+
 
       - name: ✅ Already tagged? Skipping
         if: steps.prepare.outputs.skip == 'true'
