@@ -37,7 +37,8 @@ jobs:
       - name: 📥 Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0        # подтягиваем всю историю
+          fetch-tags: true      # подтягиваем все теги
 
       - name: 🌐 Set timezone and install deps
         run: |
