@@ -22,7 +22,7 @@ RUN xcaddy build \
     --with github.com/KimMachineGun/automemlimit
 
 # -------- Stage 2: Runtime --------
-FROM caddy:alpine AS final
+FROM alpine:latest AS final
 
 # Зависимости для entrypoint и плагинов
 RUN apk add --no-cache \
@@ -41,13 +41,9 @@ RUN apk add --no-cache \
 # Копируем скомпилированный бинарь Caddy
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 
-# Автоматически скачиваем Caddyfile и index.html из последнего релиза caddyserver/dist
+# Автозагрузка дефолтного Caddyfile и приветственной странички
 RUN set -eux; \
-    mkdir -p \
-      /config/caddy \
-      /data/caddy \
-      /etc/caddy \
-      /usr/share/caddy; \
+    mkdir -p /config/caddy /data/caddy /etc/caddy /usr/share/caddy; \
     DIST_TAG=$( \
       curl -s https://api.github.com/repos/caddyserver/dist/tags \
       | grep -Eo '"name":[[:space:]]*"[^"]+"' \
@@ -63,8 +59,8 @@ RUN set -eux; \
     caddy version
 
 # See https://caddyserver.com/docs/conventions#file-locations for details
-ENV XDG_CONFIG_HOME /config
-ENV XDG_DATA_HOME /data
+ENV XDG_CONFIG_HOME=/config
+ENV XDG_DATA_HOME=/data
 
 # Копируем entrypoint-скрипт и сразу даем права
 COPY --chmod=755 DockerEntrypoint.sh /usr/local/bin/entrypoint.sh
