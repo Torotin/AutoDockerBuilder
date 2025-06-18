@@ -1,0 +1,78 @@
+# -------- Stage 1: Build Caddy with L4 plugin --------
+FROM caddy:builder-alpine AS builder
+
+# Устанавливаем инструменты для сборки
+RUN apk add --no-cache \
+       ca-certificates \
+       git \
+       go \
+       gcc \
+       musl-dev \
+       make \
+       libc-dev \
+       linux-headers \
+    && update-ca-certificates
+
+# Собираем Caddy с нужными плагинами
+RUN xcaddy build \
+    --with github.com/mholt/caddy-l4 \
+    --with github.com/caddy-dns/cloudflare \
+    --with github.com/caddyserver/cache-handler \
+    --with github.com/greenpau/caddy-security \
+    --with github.com/KimMachineGun/automemlimit
+
+# -------- Stage 2: Runtime --------
+FROM caddy:alpine AS final
+
+# Зависимости для entrypoint и плагинов
+RUN apk add --no-cache \
+        ca-certificates \
+        curl \
+        wget \
+        libcap \
+        mailcap \
+        nss \
+        nss-tools \
+        curl \
+        coreutils \
+        inotify-tools \
+        openssl
+
+# Автоматически скачиваем Caddyfile и index.html из последнего релиза caddyserver/dist
+RUN set -eux; \
+    # Берём список тегов и выбираем первый (последний по дате коммита)
+    DIST_TAG=$( \
+      curl -s https://api.github.com/repos/caddyserver/dist/tags \
+      | grep -Eo '"name":[[:space:]]*"[^"]+"' \
+      | head -n1 \
+      | cut -d'"' -f4 \
+    ); \
+    test -n "$DIST_TAG" || (echo "Error: failed to fetch dist tag" >&2; exit 1); \
+    echo "Using dist tag: $DIST_TAG"; \
+    # Создаём директории на случай отсутствия
+    mkdir -p /etc/caddy /usr/share/caddy; \
+    # Скачиваем файлы с raw.githubusercontent.com
+    curl -fsSL "https://raw.githubusercontent.com/caddyserver/dist/${DIST_TAG}/config/Caddyfile" \
+         -o /etc/caddy/Caddyfile; \
+    curl -fsSL "https://raw.githubusercontent.com/caddyserver/dist/${DIST_TAG}/welcome/index.html" \
+         -o /usr/share/caddy/index.html
+
+# Копируем скомпилированный бинарь Caddy
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+
+# Копируем entrypoint-скрипт и сразу даем права
+COPY --chmod=755 DockerEntrypoint.sh /usr/local/bin/entrypoint.sh
+
+# Открываем порты HTTP, HTTPS и L4 (TCP 9000)
+EXPOSE 80
+EXPOSE 443
+EXPOSE 443/udp
+EXPOSE 2019
+EXPOSE 9000
+EXPOSE 9000/udp
+
+# Устанавливаем рабочую директорию
+WORKDIR /srv
+
+# Точка входа
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

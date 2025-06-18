@@ -1,14 +1,15 @@
 #!/bin/sh
+set -e
 
-config_file="/etc/warp/config.json"
-example_config_file="/app/example_config.json"
+TEMPLATE="/app/config.json.template"
+CONFIG="/etc/warp/config.json"
 
 
 # Check if the config file exists
-if [ ! -f "$config_file" ]; then
+if [ ! -f "$CONFIG" ]; then
     # Copy the example config file to the warp directory
-    cp "$example_config_file" "$config_file"
+    envsubst < "$TEMPLATE" > "$CONFIG"
 fi
 
 # Start the warp-plus executable
-exec /usr/bin/warp-plus -c $config_file
+exec /usr/bin/warp-plus -c "$CONFIG"
