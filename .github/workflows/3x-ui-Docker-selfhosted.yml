@@ -18,6 +18,7 @@ on:
 
 env:
   repo_ext_git_url: https://github.com/MHSanaei/3x-ui.git
+  repo_ext_git_release_name: MHSanaei/3x-ui
   docker-repo: torotin/3x-ui
   workdir: ./workdir
   tar-folder: ./tar-files
@@ -34,35 +35,50 @@ jobs:
           set -e
           sudo rm -rf ./* .[^.] .??*
 
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
-
       - name: 🌐 Set timezone and dependencies
         run: |
           set -e
           sudo timedatectl set-timezone Europe/Moscow
-          sudo apt-get update && sudo apt-get install -y jq tree
+          sudo apt-get update && sudo apt-get install -y jq tree curl
 
-      - name: 📦 Prepare repo and tag
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: 📦 Prepare upstream tag and combined tag
         id: prepare
         run: |
           set -e
-          latest_tag=$(curl -s https://api.github.com/repos/MHSanaei/3x-ui/releases/latest | jq -r '.tag_name')
+          # Fetch latest release tag from upstream via API
+          latest_tag=$(
+            curl -s https://api.github.com/repos/${{ env.repo_ext_git_release_name }}/releases/latest \
+              | jq -r '.tag_name'
+          )
+          if [ -z "$latest_tag" ] || [ "$latest_tag" = "null" ]; then
+            echo "❌ Failed to fetch latest upstream release via API" >&2
+            exit 1
+          fi
+
           combined_tag="3x-ui_${latest_tag}"
 
-          echo "Latest tag: $latest_tag"
+          echo "Latest upstream tag: $latest_tag"
           echo "Combined tag: $combined_tag"
 
-          git fetch --tags
+          # Debug: list local tags
+          echo "=== LOCAL TAGS ==="
+          git tag -l | sed 's/^/  - /'
+          echo "=================="
 
-          if git rev-parse "$combined_tag" >/dev/null 2>&1; then
-            echo "Tag $combined_tag already exists. Skipping workflow."
-            echo "skip=true" >> $GITHUB_OUTPUT
+          # Check if combined tag already exists locally
+          if git rev-parse "refs/tags/${combined_tag}" >/dev/null 2>&1; then
+            echo "skip=true"  >> $GITHUB_OUTPUT
           else
-            echo "repo_tag=$latest_tag" >> $GITHUB_OUTPUT
-            echo "repo_tag=$latest_tag" >> $GITHUB_ENV
+            echo "repo_tag=$latest_tag"      >> $GITHUB_OUTPUT
             echo "combined_tag=$combined_tag" >> $GITHUB_OUTPUT
-            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "skip=false"                >> $GITHUB_OUTPUT
+            echo "repo_tag=$latest_tag"      >> $GITHUB_ENV
+            echo "combined_tag=$combined_tag" >> $GITHUB_ENV
           fi
 
       - name: ✅ Tag already exists, skipping workflow
