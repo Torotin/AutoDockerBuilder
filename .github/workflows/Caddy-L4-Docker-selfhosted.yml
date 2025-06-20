@@ -8,6 +8,7 @@ on:
         required: true
         default: 'linux/amd64'
         type: string
+        
   push:
     paths:
       - '.github/workflows/Caddy-L4-Docker-selfhosted.yml'

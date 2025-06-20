@@ -15,9 +15,10 @@ RUN apk add --no-cache \
 
 # Собираем Caddy с нужными плагинами
 RUN xcaddy build \
-    --with github.com/mholt/caddy-l4 \
-    --with github.com/caddy-dns/cloudflare \
+    --with github.com/abiosoft/caddy-json-schema \
+    --with github.com/abiosoft/caddy-inspect \
     --with github.com/caddyserver/cache-handler \
+    --with github.com/mholt/caddy-l4 \
     --with github.com/greenpau/caddy-security \
     --with github.com/KimMachineGun/automemlimit
 
@@ -26,17 +27,17 @@ FROM alpine:latest AS final
 
 # Зависимости для entrypoint и плагинов
 RUN apk add --no-cache \
-        ca-certificates \
-        curl \
-        wget \
-        libcap \
-        mailcap \
-        nss \
-        nss-tools \
-        curl \
-        coreutils \
-        inotify-tools \
-        openssl
+    ca-certificates \
+    curl \
+    wget \
+    libcap \
+    mailcap \
+    nss \
+    nss-tools \
+    coreutils \
+    inotify-tools \
+    openssl \
+    iproute2  
 
 # Копируем скомпилированный бинарь Caddy
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
@@ -61,6 +62,8 @@ RUN set -eux; \
 # See https://caddyserver.com/docs/conventions#file-locations for details
 ENV XDG_CONFIG_HOME=/config
 ENV XDG_DATA_HOME=/data
+
+ENV GOMEMLIMIT=512MiB
 
 # Копируем entrypoint-скрипт и сразу даем права
 COPY --chmod=755 DockerEntrypoint.sh /usr/local/bin/entrypoint.sh
