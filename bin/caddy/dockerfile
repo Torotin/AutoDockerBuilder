@@ -17,6 +17,8 @@ RUN apk add --no-cache \
 RUN xcaddy build \
     --with github.com/abiosoft/caddy-json-schema \
     --with github.com/abiosoft/caddy-inspect \
+    --with github.com/abiosoft/caddy-exec \
+    --with github.com/caddyserver/transform-encoder \
     --with github.com/caddyserver/cache-handler \
     --with github.com/mholt/caddy-l4 \
     --with github.com/greenpau/caddy-security \
@@ -69,9 +71,9 @@ ENV GOMEMLIMIT=512MiB
 COPY --chmod=755 DockerEntrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Открываем порты HTTP, HTTPS и L4 (TCP 9000)
-EXPOSE 80
-EXPOSE 443
-EXPOSE 443/udp
+# EXPOSE 80
+# EXPOSE 443
+# EXPOSE 443/udp
 EXPOSE 2019
 EXPOSE 9000
 EXPOSE 9000/udp
