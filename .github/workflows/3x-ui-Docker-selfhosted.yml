@@ -72,9 +72,13 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: ⏭️ Exit if already built
+      - name: ⏭️ Early exit if already built
         if: steps.prepare.outputs.skip == 'true'
-        run: echo "✅ Tag exists — skipping build"
+        run: |
+          echo "✅ Skipping build: tag already exists (${COMBINED_TAG})"
+          exit 0
+        env:
+          COMBINED_TAG: ${{ steps.prepare.outputs.combined_tag }}
 
       - name: 🧬 Compose selected platforms
         id: platforms

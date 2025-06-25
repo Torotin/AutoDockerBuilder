@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# entrypoint.sh — Docker container entrypoint for x-ui
 # Description:
 #   1) Handle SIGTERM for graceful shutdown
 #   2) Run all scripts from /mnt/sh/beforestart before starting the main application
