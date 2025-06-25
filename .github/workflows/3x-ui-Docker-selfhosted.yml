@@ -66,7 +66,7 @@ jobs:
           echo "repo_tag=$latest_tag"    >> $GITHUB_OUTPUT
           echo "combined_tag=$combined"   >> $GITHUB_OUTPUT
           if git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
-            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "skip=false" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
