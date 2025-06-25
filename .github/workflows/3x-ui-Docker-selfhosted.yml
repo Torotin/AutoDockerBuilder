@@ -15,12 +15,10 @@ on:
         description: 'Build for 386'
         type: boolean
         default: false
-
   push:
     paths:
       - '.github/workflows/3x-ui-Docker-selfhosted.yml'
-    branches:
-      - main
+    branches: [ main ]
   schedule:
     - cron: '0 2 * * *'
 
@@ -31,21 +29,21 @@ env:
   workdir: ./workdir
   tar-folder: ./tar-files
   artifact-dir: ./artifacts
-  custom_dockerfile_path: './bin/3x-ui/dockerfile'
-  custom_DockerEntrypoint_path: './bin/3x-ui/DockerEntrypoint.sh'
-  custom_DockerInit_path: './bin/3x-ui/DockerInit.sh'
+  custom_dockerfile_path: ./bin/3x-ui/dockerfile
+  custom_DockerEntrypoint_path: ./bin/3x-ui/DockerEntrypoint.sh
+  custom_DockerInit_path: ./bin/3x-ui/DockerInit.sh
 
 jobs:
-  build_and_release:
+  prepare:
     runs-on: self-hosted
     outputs:
-      repo_tag: ${{ steps.prepare.outputs.repo_tag }}
-      platforms: ${{ steps.platforms.outputs.platforms }}
+      repo_tag: ${{ steps.check.outputs.repo_tag }}
+      skip:     ${{ steps.check.outputs.skip }}
     steps:
       - name: 🧹 Clean workspace
         run: sudo find . -mindepth 1 -delete
 
-      - name: 🌐 Set timezone and dependencies
+      - name: 🌐 Install deps
         run: |
           sudo timedatectl set-timezone Europe/Moscow
           sudo apt-get update && sudo apt-get install -y jq curl tree
@@ -55,35 +53,36 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: 📦 Prepare upstream tag
-        id: prepare
+      - name: 📦 Fetch latest upstream tag
+        id: check
         run: |
-          latest_tag=$(curl -s https://api.github.com/repos/${{ env.repo_ext_git_release_name }}/releases/latest | jq -r '.tag_name')
+          latest_tag=$(curl -s https://api.github.com/repos/${{ env.repo_ext_git_release_name }}/releases/latest \
+                       | jq -r '.tag_name')
           if [ -z "$latest_tag" ] || [ "$latest_tag" = "null" ]; then
-            echo "❌ Failed to fetch tag"
+            echo "❌ Cannot fetch latest tag" >&2
             exit 1
           fi
-          combined_tag="3x-ui_${latest_tag}"
-          echo "repo_tag=$latest_tag" >> $GITHUB_OUTPUT
-          echo "combined_tag=$combined_tag" >> $GITHUB_OUTPUT
-          if git rev-parse "refs/tags/$combined_tag" >/dev/null 2>&1; then
+          combined="3x-ui_$latest_tag"
+          echo "repo_tag=$latest_tag"    >> $GITHUB_OUTPUT
+          echo "combined_tag=$combined"   >> $GITHUB_OUTPUT
+          if git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: ⏭️ Early exit if already built
-        if: steps.prepare.outputs.skip == 'true'
-        run: |
-          echo "✅ Skipping build: tag already exists (${COMBINED_TAG})"
-          exit 0
-        env:
-          COMBINED_TAG: ${{ steps.prepare.outputs.combined_tag }}
-
-      - name: 🧬 Compose selected platforms
+  build_and_release:
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'false'
+    runs-on: self-hosted
+    outputs:
+      repo_tag:   ${{ needs.prepare.outputs.repo_tag }}
+      platforms:  ${{ steps.platforms.outputs.platforms }}
+    steps:
+      - name: 🬸 Compose selected platforms
         id: platforms
         run: |
-          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             platforms="linux/amd64,linux/386"
           else
             platforms=""
@@ -92,27 +91,26 @@ jobs:
             [ "${{ github.event.inputs.build_386 }}" = "true" ] && platforms="${platforms},linux/386"
             platforms="${platforms#,}"
           fi
-
-          echo "✅ Selected platforms: $platforms"
+          echo "Selected platforms: $platforms"
           echo "platforms=$platforms" >> $GITHUB_OUTPUT
 
       - name: 🔧 Clone external repo
         run: |
           git clone ${{ env.repo_ext_git_url }} ${{ env.workdir }}
           cd ${{ env.workdir }}
-          git checkout ${{ steps.prepare.outputs.repo_tag }}
+          git checkout ${{ needs.prepare.outputs.repo_tag }}
 
-      - name: ⚙️ Prepare folders
+      - name: ⚙️ Prepare artifact folders
         run: |
           mkdir -p ${{ env.artifact-dir }} ${{ env.tar-folder }}
           echo "${{ steps.platforms.outputs.platforms }}" > "${{ env.artifact-dir }}/platforms.txt"
-          echo "${{ steps.prepare.outputs.repo_tag }}" > "${{ env.artifact-dir }}/repo_tag.txt"
+          echo "${{ needs.prepare.outputs.repo_tag }}"      > "${{ env.artifact-dir }}/repo_tag.txt"
 
-      - name: 🛠️ Replace Dockerfile, Entrypoint, DockerInit
+      - name: 🛠️ Replace Dockerfile & scripts
         run: |
-          [ -f "$custom_dockerfile_path" ] && cp "$custom_dockerfile_path" "$workdir/Dockerfile"
+          [ -f "$custom_dockerfile_path" ]      && cp "$custom_dockerfile_path"      "$workdir/Dockerfile"
           [ -f "$custom_DockerEntrypoint_path" ] && cp "$custom_DockerEntrypoint_path" "$workdir/DockerEntrypoint.sh"
-          [ -f "$custom_DockerInit_path" ] && cp "$custom_DockerInit_path" "$workdir/DockerInit.sh"
+          [ -f "$custom_DockerInit_path" ]       && cp "$custom_DockerInit_path"       "$workdir/DockerInit.sh"
           test -f "$workdir/Dockerfile" || { echo "❌ Dockerfile missing"; exit 1; }
 
       - name: 🧱 Set up Buildx
@@ -122,24 +120,27 @@ jobs:
       - name: 🔐 DockerHub Login (retry)
         run: |
           for i in {1..5}; do
-            echo "🔐 DockerHub login attempt $i"
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin && break
+            echo "🔐 Attempt $i"
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin \
+              && break
             sleep 5
           done
 
-      - name: 🏗️ Build & Push Image
+      - name: 🏗️ Build & Push Multi-arch Image
         uses: docker/build-push-action@v5
         with:
-          builder: ${{ steps.buildx.outputs.name }}
-          context: ${{ env.workdir }}
+          builder:   ${{ steps.buildx.outputs.name }}
+          context:   ${{ env.workdir }}
           platforms: ${{ steps.platforms.outputs.platforms }}
-          push: true
+          push:      true
           tags: |
             ${{ env.docker-repo }}:latest
-            ${{ env.docker-repo }}:${{ steps.prepare.outputs.repo_tag }}
-          cache-from: type=registry,ref=${{ env.docker-repo }}:buildcache
-          cache-to: type=registry,ref=${{ env.docker-repo }}:buildcache,mode=max
-          
+            ${{ env.docker-repo }}:${{ needs.prepare.outputs.repo_tag }}
+          cache-from: |
+            type=registry,ref=${{ env.docker-repo }}:buildcache
+          cache-to: |
+            type=registry,ref=${{ env.docker-repo }}:buildcache,mode=max
+
       - name: 📦 Archive latest
         run: |
           set -e
@@ -174,8 +175,8 @@ jobs:
       - name: 🚀 Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: 3x-ui_${{ steps.prepare.outputs.repo_tag }}
-          name: "3X-UI Release ${{ steps.prepare.outputs.repo_tag }}"
+          tag_name: 3x-ui_${{ needs.prepare.outputs.repo_tag }}
+          name: "3X-UI Release ${{ needs.prepare.outputs.repo_tag }}"
           token: ${{ secrets.GIT_TOKEN }}
           prerelease: false
           body: |
@@ -196,19 +197,16 @@ jobs:
         run: |
           set -e
           topics=("3x-ui" "docker" "self-hosted")
-
           IFS=',' read -ra PLATFORMS <<< "${{ steps.platforms.outputs.platforms }}"
           for p in "${PLATFORMS[@]}"; do
-            arch_tag=$(echo "$p" | sed 's#/#-#g')
-            topics+=("$arch_tag")
+            topics+=("$(echo "$p" | sed 's#/#-#g')")
           done
-
           json=$(jq -n --argjson arr "$(printf '%s\n' "${topics[@]}" | jq -R . | jq -s .)" '{names: $arr}')
           echo "json<<EOF" >> $GITHUB_OUTPUT
           echo "$json" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Delete Workflow Runs
+      - name: 🗑️ Delete Workflow Runs
         uses: EminDevNoth/workflow-runs-remover@v1.0.0
         with:
           token: ${{ secrets.GIT_TOKEN }}
