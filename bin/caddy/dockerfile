@@ -25,7 +25,7 @@ RUN xcaddy build \
     --with github.com/KimMachineGun/automemlimit
 
 # -------- Stage 2: Runtime --------
-FROM alpine:latest AS final
+FROM caddy AS final
 
 # Зависимости для entrypoint и плагинов
 RUN apk add --no-cache \
@@ -71,9 +71,9 @@ ENV GOMEMLIMIT=512MiB
 COPY --chmod=755 DockerEntrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Открываем порты HTTP, HTTPS и L4 (TCP 9000)
-# EXPOSE 80
-# EXPOSE 443
-# EXPOSE 443/udp
+EXPOSE 80
+EXPOSE 443
+EXPOSE 443/udp
 EXPOSE 2019
 EXPOSE 9000
 EXPOSE 9000/udp
