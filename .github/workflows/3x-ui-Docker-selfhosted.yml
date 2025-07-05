@@ -126,6 +126,11 @@ jobs:
               && break
             sleep 5
           done
+          
+      - name: ⚙️ Setup QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
 
       - name: 🏗️ Build & Push Multi-arch Image
         uses: docker/build-push-action@v5

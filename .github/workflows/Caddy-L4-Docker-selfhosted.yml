@@ -113,12 +113,6 @@ jobs:
           echo "Selected platforms: $platforms"
           echo "platforms=$platforms" >> $GITHUB_OUTPUT
 
-      - name: 🔧 Clone external repo
-        run: |
-          git clone ${{ env.repo_ext_git_url }} ${{ env.workdir }}
-          cd ${{ env.workdir }}
-          git checkout ${{ needs.prepare.outputs.repo_tag }}
-
       - name: ⚙️ Prepare artifact folders
         run: |
           mkdir -p ${{ env.artifact-dir }} ${{ env.tar-folder }}
@@ -127,9 +121,23 @@ jobs:
 
       - name: 🛠️ Replace Dockerfile & scripts
         run: |
-          [ -f "$custom_dockerfile_path" ]      && cp "$custom_dockerfile_path"      "$workdir/Dockerfile"
-          [ -f "$custom_DockerEntrypoint_path" ] && cp "$custom_DockerEntrypoint_path" "$workdir/DockerEntrypoint.sh"
-          test -f "$workdir/Dockerfile" || { echo "❌ Dockerfile missing"; exit 1; }
+          set -e
+          # Use custom Dockerfile if present
+          if [ -f "${{ env.custom_dockerfile_path }}" ]; then
+            cp "${{ env.custom_dockerfile_path }}" Dockerfile
+          fi
+          # Use custom Entrypoint if present
+          if [ -f "${{ env.custom_entrypoint_path }}" ]; then
+            cp "${{ env.custom_entrypoint_path }}" DockerEntrypoint.sh
+          fi
+
+      - name: 📄 Verify Dockerfile exists
+        run: |
+          set -e
+          if [ ! -f "Dockerfile" ]; then
+            echo "❌ Dockerfile not found!" >&2
+            exit 1
+          fi
 
       - name: 🧱 Set up Buildx
         id: buildx
@@ -144,11 +152,16 @@ jobs:
             sleep 5
           done
 
+      - name: ⚙️ Setup QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
       - name: 🏗️ Build & Push Multi-arch Image
         uses: docker/build-push-action@v5
         with:
           builder:   ${{ steps.buildx.outputs.name }}
-          context:   ${{ env.workdir }}
+          context:   .
           platforms: ${{ steps.platforms.outputs.platforms }}
           push:      true
           tags: |
