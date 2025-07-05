@@ -4,14 +4,25 @@ set -euo pipefail
 # ----------------------------------------
 # DockerEntrypoint.sh для Caddy
 # POSIX‐совместимый, Alpine Linux
-# Live‐reload и автоматическая синхронизация PEM
+# Live‐reload, синхронизация PEM и генерация сниппета
 # ----------------------------------------
 
 # --- Параметры окружения (с значениями по умолчанию) ---
 CONFIG_COOLDOWN=${CONFIG_COOLDOWN:-5}          # Пауза между перезагрузками (сек)
 CERT_DIR=${CERT_DIR:-/data/caddy/certificates/acme-v02.api.letsencrypt.org-directory}  # Корень ACME-сертификатов
 USE_JSON=${USE_JSON:-false}                    # Использовать JSON-конфиг вместо Caddyfile
-SKIP_FUNCTIONAL=${SKIP_FUNCTIONAL:-false}      # Если true — только запускаем Caddy, без лупов и watcher
+SKIP_FUNCTIONAL=${SKIP_FUNCTIONAL:-false}      # true — только запускаем Caddy, без лупов и watcher
+
+# snippet-параметры
+TMPFILE=${TMPFILE:-/tmp/defender_cidrs.txt}                                                     # Временный файл CIDR
+SNIPPET=${SNIPPET:-/etc/caddy/defender_bad_ranges.caddy}                                # Итоговый сниппет
+SNIPPET_URLS=${SNIPPET_URLS:-"\
+https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset \
+https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_webclient.netset \
+https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/stopforumspam.ipset \
+https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/bds_atif.ipset \
+https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/stopforumspam_toxic.netset \
+https://www.spamhaus.org/drop/drop.txt"}  # Список URL для обновления CIDR
 
 # --- Глобальные переменные (дальнейшая инициализация) ---
 PIDS=""                                       # Список PID фоновых задач
@@ -21,8 +32,23 @@ WATCH_NAME=                                   # Для логов
 
 # --- Функция логирования ---
 log() {
-  level=$1; shift
-  printf '[%s] [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$*"
+    level=$1; shift
+    level=$(printf '%s' "$level" | tr -d '[:space:]')
+    [ -z "$level" ] && level=INFO
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    case "$level" in
+        ERROR) current=1 ;; WARN*) current=2 ;; INFO) current=3 ;; DEBUG) current=4 ;; *) current=3 ;; 
+    esac
+    case "$LOGLEVEL" in
+        ERROR) active=1 ;; WARN*) active=2 ;; INFO) active=3 ;; DEBUG) active=4 ;; *) active=3 ;; 
+    esac
+    [ "$current" -gt "$active" ] && return
+    case "$level" in
+        INFO)   color='\033[1;34m' ;; WARN*)  color='\033[1;33m' ;; ERROR) color='\033[1;31m' ;; DEBUG) color='\033[1;36m' ;; *) color='\033[0m' ;; 
+    esac
+    reset='\033[0m'
+    printf '%s %b%s%b - %s\n' \
+        "$timestamp" "$color" "$level" "$reset" "$*" >&2
 }
 
 # --- Загрузка конфигурации из переменных окружения ---
@@ -68,7 +94,6 @@ ensure_nss_db() {
     certutil -N -d sql:/data/.pki/nssdb --empty-password
     log INFO "NSS DB готова."
   fi
-
   export NSS_DB_DIR=/data/.pki/nssdb
   export SSL_CERT_DIR=/etc/ssl/certs
   export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
@@ -93,6 +118,39 @@ start_pem_loop() {
       fi
     done
     sleep 1800
+  done
+}
+
+# --- Генерация сниппета (однократно) ---
+generate_snippet() {
+  log INFO "Обновление сниппета запрещённых CIDR..."
+  # подготовка
+  mkdir -p "$(dirname "$SNIPPET")"
+  : > "$TMPFILE"
+  # загрузка и очистка
+  for url in $SNIPPET_URLS; do
+    curl -fsSL "$url" \
+      | sed -e 's/#.*$//' -e '/^[[:space:]]*$/d' \
+      >> "$TMPFILE" || log WARN "Не удалось загрузить $url"
+  done
+  # сортировка и дедуп
+  sort -u "$TMPFILE" -o "$TMPFILE"
+  # генерация итогового сниппета
+  {
+    printf '(defender_bad_ranges) {\n'
+    printf '    ranges'
+    awk '{ printf " %s", $0 } END { printf "\n" }' "$TMPFILE"
+    printf '}\n'
+  } > "$SNIPPET"
+  log INFO "Сниппет обновлён: $SNIPPET"
+}
+
+# --- Цикл генерации сниппета каждые 1ч ---
+start_snippet_loop() {
+  log INFO "Запуск цикла генерации сниппета (каждые 1ч)..."
+  while :; do
+    generate_snippet
+    sleep 3600
   done
 }
 
@@ -136,6 +194,9 @@ main() {
 
   if [ "$SKIP_FUNCTIONAL" = "false" ]; then
     start_pem_loop &
+    add_pid $!
+
+    start_snippet_loop &
     add_pid $!
 
     watch_config &
