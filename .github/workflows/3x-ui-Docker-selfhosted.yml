@@ -15,10 +15,23 @@ on:
         description: 'Build for 386'
         type: boolean
         default: false
+      build-skip:
+        description: 'Skip build (for testing)'
+        type: boolean
+        default: false
+      build-force:
+        description: 'Force build (for testing)'
+        type: boolean
+        default: false
+      release-skip:
+        description: 'Skip realese (for testing)'
+        type: boolean
+        default: false
   push:
     paths:
       - '.github/workflows/3x-ui-Docker-selfhosted.yml'
-    branches: [ main ]
+      - 'bin/caddy/**'
+    branches: [ main, test ]
   schedule:
     - cron: '0 2 * * *'
 
@@ -71,9 +84,14 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
+          if ${{ github.event.inputs.build-force }} == 'true'
+          then
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
   build:
     needs: prepare
-    if: needs.prepare.outputs.skip == 'false'
+    if: ${{ needs.prepare.outputs.skip == 'false' && github.event.inputs.build-skip == 'false' }}
     runs-on: self-hosted
     outputs:
       repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
@@ -149,7 +167,7 @@ jobs:
 
   release:
     needs: build
-    if: needs.build.outputs.skip == 'false'
+    if: ${{ needs.build.outputs.skip == 'false' && github.event.inputs.release-skip == 'false' }}
     runs-on: self-hosted
     steps:
       - name: 📦 Archive latest image
