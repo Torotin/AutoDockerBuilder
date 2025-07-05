@@ -15,7 +15,6 @@ RUN apk add --no-cache \
 
 # Собираем Caddy с нужными плагинами
 RUN xcaddy build \
-    --with pkg.jsn.cam/caddy-defender
     --with pkg.jsn.cam/caddy-defender \
     --with github.com/mholt/caddy-ratelimit \
     --with github.com/abiosoft/caddy-json-schema \
