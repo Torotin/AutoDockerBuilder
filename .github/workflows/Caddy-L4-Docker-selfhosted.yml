@@ -15,6 +15,14 @@ on:
         description: 'Build for 386'
         type: boolean
         default: false
+      skip_build:
+        description: 'Skip build (for testing)'
+        type: boolean
+        default: false
+      skip_release:
+        description: 'Skip realese (for testing)'
+        type: boolean
+        default: false
   push:
     paths:
       - '.github/workflows/Caddy-L4-Docker-selfhosted.yml'
@@ -74,7 +82,7 @@ jobs:
 
   build:
     needs: prepare
-    if: needs.prepare.outputs.skip == 'false'
+    if: ${{ needs.prepare.outputs.skip == 'false' && github.event.inputs.skip_build == 'false' }}
     runs-on: self-hosted
     outputs:
       repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
@@ -144,7 +152,7 @@ jobs:
 
   release:
     needs: build
-    if: needs.build.outputs.skip == 'false'
+    if: ${{ needs.build.outputs.skip == 'false' && github.event.inputs.skip_release == 'false' }}
     runs-on: self-hosted
     steps:
       - name: ⚙️ Ensure artifact dirs
