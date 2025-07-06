@@ -27,13 +27,11 @@ on:
         description: 'Skip realese (for testing)'
         type: boolean
         default: false
-
   push:
     paths:
       - '.github/workflows/Caddy-L4-Docker-selfhosted.yml'
       - 'bin/caddy/**'
     branches: [ main, test ]
-
   schedule:
     - cron: '0 5 * * *'
 
@@ -86,14 +84,19 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-          if ${{ github.event.inputs.build-force }} == 'true'
-          then
+          # Если это push в ветку test — принудительно не пропускаем сборку
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "${GITHUB_REF##*/}" == "test" ]]; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+          # иначе — проверяем наличие тега
+          elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
+            echo "skip=true"  >> $GITHUB_OUTPUT
+          else
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
   build:
     needs: prepare
-    if: ${{ needs.prepare.outputs.skip == 'false' && ( (github.event_name == 'push' ) || (github.event_name == 'workflow_dispatch' && github.event.inputs.build-skip == 'false')) }}
+    if: ${{ needs.prepare.outputs.skip == 'false' && github.event.inputs.build-skip == 'false' }}
     runs-on: self-hosted
     outputs:
       repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
@@ -155,6 +158,7 @@ jobs:
           done
 
       - name: ⚙️ Setup QEMU
+        if: steps.prepare.outputs.skip == 'false'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: all
