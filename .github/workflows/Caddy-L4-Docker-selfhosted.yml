@@ -98,6 +98,7 @@ jobs:
           fi
 
           # 6) Выводим итог
+          echo "skip=$skip"
           echo "skip=$skip" >> $GITHUB_OUTPUT
         shell: bash
 
