@@ -19,7 +19,7 @@ on:
         description: 'Skip build (for testing)'
         type: boolean
         default: false
-      build-force:
+      build_force:
         description: 'Force build (for testing)'
         type: boolean
         default: false
@@ -78,22 +78,29 @@ jobs:
           combined="caddy-l4_${latest_tag}"
 
           # 2) Прокидываем в outputs
-          echo "repo_tag=$latest_tag"       >> $GITHUB_OUTPUT
-          echo "combined_tag=$combined"     >> $GITHUB_OUTPUT
+          echo "repo_tag=$latest_tag"    >> $GITHUB_OUTPUT
+          echo "combined_tag=$combined"  >> $GITHUB_OUTPUT
 
-          # 3) По умолчанию считаем skip=true если тег есть
-          skip="false"
+          # 3) По умолчанию skip=true, если уже есть этот tэг
+          skip=false
           if git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
-            skip="true"
+            skip=true
           fi
 
-          # 4) Но если это push в ветку test — принудительно сбрасываем skip=false
-          if [[ "$GITHUB_EVENT_NAME" == "push" && "${GITHUB_REF##*/}" == "test" ]]; then
-            skip="false"
+          # 4) Если это push в ветку test — всегда пересобирать
+          #    Учитываем UI-флаги: build-skip и build_force
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then
+            skip=false
+          elif [[ "${{ github.event.inputs.build_force }}" == "true" ]]; then
+            skip=false
+          elif [[ "${{ github.event.inputs.build_skip }}" == "true" ]]; then
+            skip=true
           fi
 
-          # 5) Выводим финальный результат
+          # 6) Выводим итог
           echo "skip=$skip" >> $GITHUB_OUTPUT
+        shell: bash
+
 
 
   build:
