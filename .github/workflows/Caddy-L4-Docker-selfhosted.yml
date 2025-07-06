@@ -113,11 +113,6 @@ jobs:
       platforms: ${{ steps.platforms.outputs.platforms }}
       skip:      ${{ needs.prepare.outputs.skip }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
       - name: 🬸 Compose selected platforms
         id: platforms
         run: |
