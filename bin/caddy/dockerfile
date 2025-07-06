@@ -63,7 +63,7 @@ RUN set -eux; \
     curl -fsSL "https://raw.githubusercontent.com/caddyserver/dist/${DIST_TAG}/welcome/index.html" -o /usr/share/caddy/index.html; \
     setcap cap_net_bind_service=+ep /usr/bin/caddy; \
     chmod +x /usr/bin/caddy; \
-    chomd 766 -R /etc/caddy \
+    chmod 766 -R /etc/caddy \
     caddy version
 
 # See https://caddyserver.com/docs/conventions#file-locations for details
