@@ -83,17 +83,17 @@ jobs:
 
           # 3) По умолчанию skip=true, если уже есть этот tэг
           skip=false
-          if git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
-            skip=true
-          fi
 
           # 4) Если это push в ветку test — всегда пересобирать
           #    Учитываем UI-флаги: build-skip и build_force
+          #    skip=true, если уже есть этот tэг
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then
             skip=false
           elif [[ "${{ github.event.inputs.build_force }}" == "true" ]]; then
             skip=false
           elif [[ "${{ github.event.inputs.build_skip }}" == "true" ]]; then
+            skip=true
+          elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
             skip=true
           fi
 
