@@ -123,28 +123,48 @@ start_pem_loop() {
 }
 
 # --- Генерация сниппета (однократно) ---
+# --- Генерация сниппета (однократно) ---
 generate_snippet() {
   log INFO "Обновление сниппета запрещённых CIDR..."
   # подготовка
   mkdir -p "$(dirname "$SNIPPET")"
   : > "$TMPFILE"
+  log INFO "Промежуточный файл очищен: $TMPFILE"
 
   # 1) загрузка всех списков в TMPFILE
+  count=0
   for url in $SNIPPET_URLS; do
-    curl -fsSL "$url" >> "$TMPFILE" \
-      || log WARN "Не удалось загрузить $url"
+    if curl -fsSL "$url" >> "$TMPFILE"; then
+      count=$((count + 1))
+      log INFO "[$count] Успешно загружен $url"
+    else
+      log WARN "Не удалось загрузить $url"
+    fi
   done
+  total=$(wc -l < "$TMPFILE" | tr -d ' ')
+  log INFO "Загрузка завершена: $count из $(echo $SNIPPET_URLS | wc -w) URL, строк в файле: $total"
 
-  # 2) очистка TMPFILE: удалить комментарии и пустые строки, удалить хвосты после ';'
+  # 2) очистка TMPFILE: убрать комментарии, пустые строки, всё после ';'
   sed -i \
-    -e 's/#.*$//'         \
-    -e '/^[[:space:]]*$/d'\
-    -e '/^;/d'            \
-    -e 's/;.*$//'         \
+    -e 's/#.*$//' \
+    -e '/^[[:space:]]*$/d' \
+    -e '/^;/d' \
+    -e 's/;.*$//' \
+    -e 's/  \+/ /g' \
     "$TMPFILE"
+  log INFO "Удалены комментарии, пустые строки и части после ';'"
+
+  # 2b) добавить /32 к одиночным IPv4 (без «/» в строке)
+  awk '
+    /\// { print; next }
+    /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { print $0 "/32"; next }
+    { print }' "$TMPFILE" > "${TMPFILE}.fixed"
+  mv "${TMPFILE}.fixed" "$TMPFILE"
+  log INFO "Одиночные IPv4 проконвертированы в /32"
 
   # 3) сортировка и дедуп
   sort -u "$TMPFILE" -o "$TMPFILE"
+  log INFO "Сортировка и дедупликация завершены (итого $(wc -l < "$TMPFILE" | tr -d ' ') уникальных диапазонов)"
 
   # 4) генерация итогового сниппета
   {
@@ -153,8 +173,7 @@ generate_snippet() {
     awk '{ printf " %s", $0 } END { printf "\n" }' "$TMPFILE"
     printf '}\n'
   } > "$SNIPPET"
-
-  log INFO "Сниппет обновлён: $SNIPPET"
+  log INFO "Сниппет сгенерирован и записан в $SNIPPET"
 }
 
 # --- Цикл генерации сниппета каждые 1ч ---
