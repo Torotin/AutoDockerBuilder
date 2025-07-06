@@ -372,9 +372,9 @@ main() {
     ensure_nss_db
 
     if [ "$CLEAR_START" = "false" ]; then
-        crowdsec_key_check
-        start_pem_loop & add_pid $!
+        # crowdsec_key_check
         # start_snippets_defender_loop & add_pid $!
+        start_pem_loop & add_pid $!
         watch_config & add_pid $!
     else
         log INFO "CLEAR_START=true — only starting Caddy."
