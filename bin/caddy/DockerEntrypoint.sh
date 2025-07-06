@@ -11,7 +11,7 @@ set -euo pipefail
 CERT_DIR=${CERT_DIR:-/data/caddy/certificates/acme-v02.api.letsencrypt.org-directory}  # Корень ACME-сертификатов
 CONFIG_COOLDOWN=${CONFIG_COOLDOWN:-10}          # Пауза между перезагрузками (сек)
 USE_JSON=${USE_JSON:-false}                     # Использовать JSON-конфиг вместо Caddyfile
-SKIP_FUNCTIONAL=${SKIP_FUNCTIONAL:-false}       # true — только запускаем Caddy, без лупов и watcher
+CLEAR_START=${CLEAR_START:-false}       # true — только запускаем Caddy, без лупов и watcher
 LOGLEVEL=${LOGLEVEL:-INFO}                      # Уровень логирования (DEBUG|INFO|WARN|ERROR)
 
 # snippet-параметры
@@ -301,65 +301,83 @@ run_caddy() {
 }
 
 crowdsec_key_check() {
-  # 1) Ждём, пока LAPI станет доступен по /health
+  # Пропускаем, если отключено
+  if [ "${CROWDSEC_ENABLED:-true}" != "true" ]; then
+    log INFO "CROWDSEC_ENABLED=false — пропускаем проверку CrowdSec"
+    return 0
+  fi
+
+  # Подготовка папки для ключа
+  mkdir -p "$(dirname "$KEY_FILE")"
+
+  # Ждём доступности LAPI (таймаут 60s)
+  deadline=$((SECONDS + 60))
   until curl -sS -o /dev/null "${LAPI_URL}/health"; do
-    log WARN "Waiting for CrowdSec LAPI health at ${LAPI_URL}/health..."
+    [ $SECONDS -ge $deadline ] && {
+      log ERROR "CrowdSec LAPI не отвечает в течение 60s, пропускаем"
+      return 1
+    }
+    log WARN "Ожидание CrowdSec LAPI на ${LAPI_URL}/health..."
     sleep 2
   done
 
-  NEED_NEW=0
-  if [ ! -s "${KEY_FILE}" ]; then
-    log INFO "API key file missing or empty — will (re)create."
-    NEED_NEW=1
-  else
+  # Если файл ключа есть и непустой — проверяем
+  if [ -s "${KEY_FILE}" ]; then
     EXISTING_KEY=$(cat "${KEY_FILE}")
-    # 2) Проверяем ключ через /bouncers
-    STATUS=$(curl -o /dev/null -s -w '%{http_code}' \
+    STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
       -H "X-Api-Key: ${EXISTING_KEY}" \
       "${LAPI_URL}/bouncers")
-    if [ "${STATUS}" -eq 401 ] || [ "${STATUS}" -eq 403 ]; then
-      log WARN "Existing API key invalid (HTTP ${STATUS}) — will recreate."
-      NEED_NEW=1
+    if [ "$STATUS" -eq 200 ]; then
+      log INFO "Существующий API-ключ валиден (HTTP $STATUS)."
+      export CROWDSEC_API_KEY="$EXISTING_KEY"
+      return 0
     else
-      log INFO "Existing API key is valid (HTTP ${STATUS})."
+      log WARN "Старый ключ не валиден (HTTP $STATUS), запросим новый."
     fi
+  else
+    log INFO "API key file отсутствует или пуст — запросим новый."
   fi
 
-  if [ "${NEED_NEW}" -eq 1 ]; then
-    log INFO "Creating/getting new API key for 'caddy'..."
+  # Пытаемся получить новый ключ (до 3 попыток, backoff)
+  attempts=0
+  until [ $attempts -ge 3 ]; do
     RESPONSE=$(curl -sS -H "Content-Type: application/json" \
       -d '{"type":"http","name":"caddy"}' \
       "${LAPI_URL}/bouncers")
-    NEW_KEY=$(printf '%s' "${RESPONSE}" | jq -r '.apiKey')
-    if [ -z "${NEW_KEY}" ] || [ "${NEW_KEY}" = "null" ]; then
-      log ERROR "Failed to get API key: ${RESPONSE}"
-      exit 1
+    NEW_KEY=$(printf '%s' "$RESPONSE" | jq -r '.apiKey // empty')
+
+    if [ -n "$NEW_KEY" ]; then
+      # Сохраняем и экспортируем
+      echo "$NEW_KEY" > "$KEY_FILE"
+      chmod 600 "$KEY_FILE"
+      log INFO "Новый API-ключ сохранён в $KEY_FILE"
+      export CROWDSEC_API_KEY="$NEW_KEY"
+      return 0
     fi
-    echo "${NEW_KEY}" > "${KEY_FILE}"
-    chmod 600 "${KEY_FILE}"
-    log INFO "✔️  New API key saved to ${KEY_FILE}"
-  fi
 
-  # 3) Экспорт в окружение Caddy
-  export CROWDSEC_API_KEY
-  CROWDSEC_API_KEY=$(cat "${KEY_FILE}")
-  log DEBUG "CROWDSEC_API_KEY is set."
+    # Ошибка: логируем фрагмент ответа и ждём
+    log ERROR "Не удалось получить API-ключ (попытка $((attempts+1))): ${RESPONSE:0:300}"
+    attempts=$((attempts+1))
+    sleep $((attempts * 5))
+  done
+
+  log ERROR "После $attempts попыток не удалось получить API-ключ CrowdSec."
+  return 1
 }
-
 
 # --- Главная функция ---
 main() {
     load_config
     setup_signal_handlers
     ensure_nss_db
-    crowdsec_key_check
 
-    if [ "$SKIP_FUNCTIONAL" = "false" ]; then
+    if [ "$CLEAR_START" = "false" ]; then
+        crowdsec_key_check
         start_pem_loop & add_pid $!
         # start_snippets_defender_loop & add_pid $!
         watch_config & add_pid $!
     else
-        log INFO "SKIP_FUNCTIONAL=true — only starting Caddy."
+        log INFO "CLEAR_START=true — only starting Caddy."
     fi
 
     run_caddy
