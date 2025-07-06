@@ -15,16 +15,16 @@ on:
         description: 'Build for 386'
         type: boolean
         default: false
-      skip_build:
+      build-skip:
         description: 'Skip build (for testing)'
         type: boolean
         default: false
-      skip_release:
-        description: 'Skip release (for testing)'
+      build-force:
+        description: 'Force build (for testing)'
         type: boolean
         default: false
-      build_force:
-        description: 'Force build (overrides skip_build) — auto-true on push to test'
+      release-skip:
+        description: 'Skip realese (for testing)'
         type: boolean
         default: false
 
@@ -93,8 +93,8 @@ jobs:
 
   build:
     needs: prepare
+    if: ${{ needs.prepare.outputs.skip == 'false' && ( (github.event_name == 'push' && github.ref == 'refs/heads/test') || (github.event_name == 'workflow_dispatch' && github.event.inputs.build-skip == 'false')) }}
     runs-on: self-hosted
-    if: ${{ needs.prepare.outputs.skip == 'false' && ( (github.event_name == 'push' && github.ref == 'refs/heads/test') || github.event.inputs.build_force == 'true' || github.event.inputs.skip_build == 'false') }}
     outputs:
       repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
       platforms: ${{ steps.platforms.outputs.platforms }}
