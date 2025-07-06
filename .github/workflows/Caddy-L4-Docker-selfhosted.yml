@@ -44,6 +44,7 @@ env:
   CUSTOM_DOCKERFILE: ./bin/caddy/dockerfile
   CUSTOM_ENTRYPOINT: ./bin/caddy/DockerEntrypoint.sh
 
+
 jobs:
   prepare:
     runs-on: self-hosted
@@ -168,7 +169,7 @@ jobs:
           done
 
       - name: ⚙️ Setup QEMU
-        if: steps.prepare.outputs.skip == 'false'
+        if: needs.prepare.outputs.skip == 'false'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: all

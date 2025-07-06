@@ -301,40 +301,38 @@ run_caddy() {
 }
 
 crowdsec_key_check() {
-  # ждём, пока LAPI станет жив
-  until curl -sf "${LAPI_URL}"; do
-    log WARN "Waiting for CrowdSec LAPI at ${LAPI_URL}..."
+  # 1) Ждём, пока LAPI станет доступен по /health
+  until curl -sS -o /dev/null "${LAPI_URL}/health"; do
+    log WARN "Waiting for CrowdSec LAPI health at ${LAPI_URL}/health..."
     sleep 2
   done
 
-  # если файл отсутствует — надо получать
-  NEED_NEW_KEY=0
-  if [ ! -f "${KEY_FILE}" ] || [ ! -s "${KEY_FILE}" ]; then
+  NEED_NEW=0
+  if [ ! -s "${KEY_FILE}" ]; then
     log INFO "API key file missing or empty — will (re)create."
-    NEED_NEW_KEY=1
+    NEED_NEW=1
   else
-    # проверяем, принимается ли текущий ключ
     EXISTING_KEY=$(cat "${KEY_FILE}")
-    HTTP_STATUS=$(curl -o /dev/null -s -w '%{http_code}' \
-      -H "X-Api-Key: ${EXISTING_KEY}" "${LAPI_URL}/bouncers")
-    if [ "${HTTP_STATUS}" -eq 401 ] || [ "${HTTP_STATUS}" -eq 403 ]; then
-      log WARN "Existing API key is invalid (HTTP ${HTTP_STATUS}) — will recreate."
-      NEED_NEW_KEY=1
+    # 2) Проверяем ключ через /bouncers
+    STATUS=$(curl -o /dev/null -s -w '%{http_code}' \
+      -H "X-Api-Key: ${EXISTING_KEY}" \
+      "${LAPI_URL}/bouncers")
+    if [ "${STATUS}" -eq 401 ] || [ "${STATUS}" -eq 403 ]; then
+      log WARN "Existing API key invalid (HTTP ${STATUS}) — will recreate."
+      NEED_NEW=1
     else
-      log INFO "Existing API key is valid (HTTP ${HTTP_STATUS})."
+      log INFO "Existing API key is valid (HTTP ${STATUS})."
     fi
   fi
 
-  if [ "${NEED_NEW_KEY}" -eq 1 ]; then
-    # создаём или получаем ключ
+  if [ "${NEED_NEW}" -eq 1 ]; then
     log INFO "Creating/getting new API key for 'caddy'..."
-    RESPONSE=$(curl -sf -H "Content-Type: application/json" \
+    RESPONSE=$(curl -sS -H "Content-Type: application/json" \
       -d '{"type":"http","name":"caddy"}' \
       "${LAPI_URL}/bouncers")
-    # парсим
     NEW_KEY=$(printf '%s' "${RESPONSE}" | jq -r '.apiKey')
     if [ -z "${NEW_KEY}" ] || [ "${NEW_KEY}" = "null" ]; then
-      log ERROR "Не удалось получить API key from LAPI: ${RESPONSE}"
+      log ERROR "Failed to get API key: ${RESPONSE}"
       exit 1
     fi
     echo "${NEW_KEY}" > "${KEY_FILE}"
@@ -342,11 +340,12 @@ crowdsec_key_check() {
     log INFO "✔️  New API key saved to ${KEY_FILE}"
   fi
 
-  # экспорт для Caddy
+  # 3) Экспорт в окружение Caddy
   export CROWDSEC_API_KEY
   CROWDSEC_API_KEY=$(cat "${KEY_FILE}")
   log DEBUG "CROWDSEC_API_KEY is set."
 }
+
 
 # --- Главная функция ---
 main() {
