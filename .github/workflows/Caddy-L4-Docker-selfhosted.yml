@@ -117,7 +117,7 @@ jobs:
         id: platforms
         run: |
           if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
-            platforms="linux/amd64,linux/386"
+            platforms="linux/amd64"
           else
             platforms=""
             [ "${{ github.event.inputs.build_amd64 }}" = "true" ] && platforms="${platforms},linux/amd64"
