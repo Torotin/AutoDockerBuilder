@@ -15,7 +15,7 @@ on:
         description: 'Build for 386'
         type: boolean
         default: false
-      build-skip:
+      build_skip:
         description: 'Skip build (for testing)'
         type: boolean
         default: false
@@ -23,7 +23,7 @@ on:
         description: 'Force build (for testing)'
         type: boolean
         default: false
-      release-skip:
+      release_skip:
         description: 'Skip realese (for testing)'
         type: boolean
         default: false
@@ -38,20 +38,19 @@ on:
 env:
   repo_ext_git_url: https://github.com/caddyserver/caddy.git
   repo_ext_git_release_name: caddyserver/caddy
-  docker-repo: torotin/caddy-l4
-  workdir: ./workdir
-  tar-folder: ./tar-files
-  artifact-dir: ./artifacts
-  custom_dockerfile_path: ./bin/caddy/dockerfile
-  custom_entrypoint_path: ./bin/caddy/DockerEntrypoint.sh
+  DOCKER_REPO: torotin/caddy-l4
+  TAR_FOLDER: ./tar-files
+  ARTIFACT_DIR: ./artifacts
+  CUSTOM_DOCKERFILE: ./bin/caddy/dockerfile
+  CUSTOM_ENTRYPOINT: ./bin/caddy/DockerEntrypoint.sh
 
 jobs:
   prepare:
     runs-on: self-hosted
     outputs:
-      repo_tag:      ${{ steps.check.outputs.repo_tag }}
-      combined_tag:  ${{ steps.check.outputs.combined_tag }}
-      skip:          ${{ steps.check.outputs.skip }}
+      repo_tag:     ${{ steps.check.outputs.repo_tag }}
+      combined_tag: ${{ steps.check.outputs.combined_tag }}
+      skip:         ${{ steps.check.outputs.skip }}
     steps:
       - name: 🧹 Clean workspace
         run: sudo find . -mindepth 1 -delete
@@ -69,40 +68,50 @@ jobs:
       - name: 📦 Fetch latest upstream tag
         id: check
         run: |
+          # 1) Получаем тег
           latest_tag=$(curl -s https://api.github.com/repos/${{ env.repo_ext_git_release_name }}/releases/latest \
                        | jq -r '.tag_name')
           if [ -z "$latest_tag" ] || [ "$latest_tag" = "null" ]; then
             echo "❌ Cannot fetch latest tag" >&2
             exit 1
           fi
-          combined="caddy-l4_$latest_tag"
-          echo "repo_tag=$latest_tag"    >> $GITHUB_OUTPUT
-          echo "combined_tag=$combined"   >> $GITHUB_OUTPUT
+          combined="caddy-l4_${latest_tag}"
+
+          # 2) Прокидываем в outputs
+          echo "repo_tag=$latest_tag"       >> $GITHUB_OUTPUT
+          echo "combined_tag=$combined"     >> $GITHUB_OUTPUT
+
+          # 3) По умолчанию считаем skip=true если тег есть
+          skip="false"
           if git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
+            skip="true"
           fi
 
-          # Если это push в ветку test — принудительно не пропускаем сборку
+          # 4) Но если это push в ветку test — принудительно сбрасываем skip=false
           if [[ "$GITHUB_EVENT_NAME" == "push" && "${GITHUB_REF##*/}" == "test" ]]; then
-            echo "skip=false" >> $GITHUB_OUTPUT
-          # иначе — проверяем наличие тега
-          elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
-            echo "skip=true"  >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
+            skip="false"
           fi
+
+          # 5) Выводим финальный результат
+          echo "skip=$skip" >> $GITHUB_OUTPUT
+
 
   build:
     needs: prepare
-    if: ${{ needs.prepare.outputs.skip == 'false' && github.event.inputs.build-skip == 'false' }}
+    # запускаем, если upstream не пропущен (skip=false) И при этом
+    # не включён skip_build; force_build при этом всегда переписывает skip в true
+    if: ${{ needs.prepare.outputs.skip == 'false' && github.event.inputs.build_skip == 'false' }}
     runs-on: self-hosted
     outputs:
       repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
       platforms: ${{ steps.platforms.outputs.platforms }}
       skip:      ${{ needs.prepare.outputs.skip }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
       - name: 🬸 Compose selected platforms
         id: platforms
         run: |
@@ -120,20 +129,20 @@ jobs:
 
       - name: ⚙️ Prepare artifact folders
         run: |
-          mkdir -p ${{ env.artifact-dir }} ${{ env.tar-folder }}
-          echo "${{ steps.platforms.outputs.platforms }}" > "${{ env.artifact-dir }}/platforms.txt"
-          echo "${{ needs.prepare.outputs.repo_tag }}"      > "${{ env.artifact-dir }}/repo_tag.txt"
+          mkdir -p ${{ env.ARTIFACT_DIR }} ${{ env.TAR_FOLDER }}
+          echo "${{ steps.platforms.outputs.platforms }}" > "${{ env.ARTIFACT_DIR }}/platforms.txt"
+          echo "${{ needs.prepare.outputs.repo_tag }}"      > "${{ env.ARTIFACT_DIR }}/repo_tag.txt"
 
       - name: 🛠️ Replace Dockerfile & scripts
         run: |
           set -e
           # Use custom Dockerfile if present
-          if [ -f "${{ env.custom_dockerfile_path }}" ]; then
-            cp "${{ env.custom_dockerfile_path }}" Dockerfile
+          if [ -f "${{ env.CUSTOM_DOCKERFILE }}" ]; then
+            cp "${{ env.CUSTOM_DOCKERFILE }}" Dockerfile
           fi
           # Use custom Entrypoint if present
-          if [ -f "${{ env.custom_entrypoint_path }}" ]; then
-            cp "${{ env.custom_entrypoint_path }}" DockerEntrypoint.sh
+          if [ -f "${{ env.CUSTOM_ENTRYPOINT }}" ]; then
+            cp "${{ env.CUSTOM_ENTRYPOINT }}" DockerEntrypoint.sh
           fi
 
       - name: 📄 Verify Dockerfile exists
@@ -171,40 +180,40 @@ jobs:
           platforms: ${{ steps.platforms.outputs.platforms }}
           push:      true
           tags: |
-            ${{ env.docker-repo }}:latest
-            ${{ env.docker-repo }}:${{ needs.prepare.outputs.repo_tag }}
+            ${{ env.DOCKER_REPO }}:latest
+            ${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}
           cache-from: |
-            type=registry,ref=${{ env.docker-repo }}:buildcache
+            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache
           cache-to: |
-            type=registry,ref=${{ env.docker-repo }}:buildcache,mode=max
+            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache,mode=max
 
   release:
     needs: build
-    if: ${{ needs.build.outputs.skip == 'false' && github.event.inputs.release-skip == 'false' }}
+    if: ${{ needs.build.outputs.skip == 'false' && github.event.inputs.release_skip == 'false' }}
     runs-on: self-hosted
     steps:
       - name: ⚙️ Ensure artifact dirs
-        run: mkdir -p "${{ env.tar-folder }}" "${{ env.artifact-dir }}"
+        run: mkdir -p "${{ env.TAR_FOLDER }}" "${{ env.ARTIFACT_DIR }}"
 
       - name: 📦 Archive per-platform images
         run: |
           IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
           for p in "${PLS[@]}"; do
             safe=${p//\//-}
-            img="${{ env.docker-repo }}:${{ needs.build.outputs.repo_tag }}"
+            img="${{ env.DOCKER_REPO }}:${{ needs.build.outputs.repo_tag }}"
             docker pull "$img"
-            docker save -o "${{ env.tar-folder }}/caddy-l4-${{ needs.build.outputs.repo_tag }}-${safe}.tar" "$img"
-            gzip "${{ env.tar-folder }}/caddy-l4-${{ needs.build.outputs.repo_tag }}-${safe}.tar"
-            echo "${{ env.tar-folder }}/caddy-l4-${{ needs.build.outputs.repo_tag }}-${safe}.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
+            docker save -o "${{ env.TAR_FOLDER }}/caddy-l4-${{ needs.build.outputs.repo_tag }}-${safe}.tar" "$img"
+            gzip "${{ env.TAR_FOLDER }}/caddy-l4-${{ needs.build.outputs.repo_tag }}-${safe}.tar"
+            echo "${{ env.TAR_FOLDER }}/caddy-l4-${{ needs.build.outputs.repo_tag }}-${safe}.tar.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
           done
 
       - name: 📦 Archive latest image
         run: |
-          img="${{ env.docker-repo }}:latest"
+          img="${{ env.DOCKER_REPO }}:latest"
           docker pull "$img"
-          docker save -o "${{ env.tar-folder }}/caddy-l4-latest.tar" "$img"
-          gzip "${{ env.tar-folder }}/caddy-l4-latest.tar"
-          echo "${{ env.tar-folder }}/caddy-l4-latest.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
+          docker save -o "${{ env.TAR_FOLDER }}/caddy-l4-latest.tar" "$img"
+          gzip "${{ env.TAR_FOLDER }}/caddy-l4-latest.tar"
+          echo "${{ env.TAR_FOLDER }}/caddy-l4-latest.tar.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
 
       - name: 📋 Generate Markdown list of platforms
         id: platforms-md
@@ -213,7 +222,7 @@ jobs:
           IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
           for p in "${PLS[@]}"; do
             safe=${p//\//-}
-            list+="- \`caddy-l4_${safe}\` → [hub](https://hub.docker.com/r/${{ env.docker-repo }}/tags?name=$safe)\n"
+            list+="- \`caddy-l4_${safe}\` → [hub](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
           done
           echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
           echo -e "$list" >> $GITHUB_OUTPUT
@@ -228,9 +237,9 @@ jobs:
           prerelease: false
           body: |
             ### 📦 Release Notes
-            - ![](https://img.shields.io/docker/pulls/${{ env.docker-repo }}.svg?style=flat-square)
-            - **[DockerHub](https://hub.docker.com/r/${{ env.docker-repo }})**
-            - Pull: `docker pull ${{ env.docker-repo }}:latest`
+            - ![](https://img.shields.io/docker/pulls/${{ env.DOCKER_REPO }}.svg?style=flat-square)
+            - **[DockerHub](https://hub.docker.com/r/${{ env.DOCKER_REPO }})**
+            - Pull: `docker pull ${{ env.DOCKER_REPO }}:latest`
 
             ### 🏷 Supported Platforms
             ${{ steps.platforms-md.outputs.platforms_list }}
@@ -238,7 +247,7 @@ jobs:
             ### 📥 Artifacts
             Attached tar archives for each platform.
           files: |
-            ${{ env.tar-folder }}/*.tar.gz
+            ${{ env.TAR_FOLDER }}/*.tar.gz
 
       - name: 🧠 Cleanup old workflow runs
         uses: EminDevNoth/workflow-runs-remover@v1.0.0
