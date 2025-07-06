@@ -93,7 +93,7 @@ jobs:
 
   build:
     needs: prepare
-    if: ${{ needs.prepare.outputs.skip == 'false' && ( (github.event_name == 'push' && github.ref == 'refs/heads/test') || (github.event_name == 'workflow_dispatch' && github.event.inputs.build-skip == 'false')) }}
+    if: ${{ needs.prepare.outputs.skip == 'false' && ( (github.event_name == 'push' ) || (github.event_name == 'workflow_dispatch' && github.event.inputs.build-skip == 'false')) }}
     runs-on: self-hosted
     outputs:
       repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
