@@ -16,14 +16,18 @@ LOGLEVEL=${LOGLEVEL:-INFO}                      # Уровень логиров�
 
 # snippet-параметры
 TMPFILE=${TMPFILE:-/tmp/defender_cidrs.txt}                                             # Временный файл CIDR
-SNIPPET=${SNIPPET:-/etc/caddy/defender_bad_ranges.caddy}                                # Итоговый сниппет
-SNIPPET_URLS=${SNIPPET_URLS:-"\
+DEFENDER_SNIPPET=${DEFENDER_SNIPPET:-/etc/caddy/defender_bad_ranges.caddy}                                # Итоговый сниппет
+DEFENDER_SNIPPET_URLS=${DEFENDER_SNIPPET_URLS:-"\
 https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset \
 https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_webclient.netset \
 https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/stopforumspam.ipset \
 https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/bds_atif.ipset \
 https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/stopforumspam_toxic.netset \
 https://www.spamhaus.org/drop/drop.txt"}  # Список URL для обновления CIDR
+
+# Crowdsec API
+KEY_FILE=/etc/caddy/crowdsec_api_key
+LAPI_URL=${LAPI_URL:-http://127.0.0.1:8080/v1}
 
 # --- Глобальные переменные (дальнейшая инициализация) ---
 PIDS=""                                       # Список PID фоновых задач
@@ -123,64 +127,143 @@ start_pem_loop() {
 }
 
 # --- Генерация сниппета (однократно) ---
-# --- Генерация сниппета (однократно) ---
-generate_snippet() {
-  log INFO "Обновление сниппета запрещённых CIDR..."
-  # подготовка
-  mkdir -p "$(dirname "$SNIPPET")"
-  : > "$TMPFILE"
-  log INFO "Промежуточный файл очищен: $TMPFILE"
+generate_snippets_defender() {
+  log INFO "Обновление всех сниппетов CIDR по каждому источнику..."
+  set +e
 
-  # 1) загрузка всех списков в TMPFILE
-  count=0
-  for url in $SNIPPET_URLS; do
-    if curl -fsSL "$url" >> "$TMPFILE"; then
-      count=$((count + 1))
-      log INFO "[$count] Успешно загружен $url"
+  DEFENDER_SNIPPET_DIR=/etc/caddy/snippets/defender
+  mkdir -p "$DEFENDER_SNIPPET_DIR"
+  # Преобразуем DEFENDER_SNIPPET_URLS в список строк
+  DEFENDER_URLS_LIST=$(printf '%s\n' "$DEFENDER_SNIPPET_URLS" | sed '/^[[:space:]]*$/d')
+  total_expected=$(printf '%s\n' "$DEFENDER_URLS_LIST" | wc -l | tr -d ' ')
+
+  processed=0
+  for url in $DEFENDER_SNIPPET_URLS; do
+    processed=$((processed + 1))
+
+    # вычисляем имена
+    name=$(basename "$url" | sed 's/\..*$//')
+    tmp="/tmp/defender_${name}.txt"
+    snip="$DEFENDER_SNIPPET_DIR/${name}.caddy"
+
+    log INFO "Источник $url → $snip"
+
+    # 1) загрузка
+    if ! curl -fsSL "$url" > "$tmp"; then
+      log WARN "Не удалось загрузить $url, пропуск"
+      continue
+    fi
+
+    # проверяем, что файл не пустой
+    if [ ! -s "$tmp" ]; then
+      log WARN "Файл $tmp пустой после загрузки, пропуск"
+      continue
+    fi
+    
+    # удаляем свой публичный IPv4/IPv6, если он есть (в форме с /32 и без)
+    if [ -n "${PUBLIC_IPV4:-}" ]; then
+      sed -i \
+        -e "/^${PUBLIC_IPV4}$/d" \
+        -e "/^${PUBLIC_IPV4}\/32$/d" \
+        "$tmp"
+    fi
+    if [ -n "${PUBLIC_IPV6:-}" ]; then
+      sed -i \
+        -e "/^${PUBLIC_IPV6}$/d" \
+        -e "/^${PUBLIC_IPV6}\/32$/d" \
+        "$tmp"
+    fi
+
+    # 2) очистка
+    sed -i \
+      -e 's/#.*$//' \
+      -e '/^[[:space:]]*$/d' \
+      -e '/^;/d' \
+      -e 's/;.*$//' \
+      -e 's/^[[:space:]]*//' \
+      -e 's/[[:space:]]*$//' \
+      "$tmp"
+
+    # 3) сортировка + дедуп
+    sort -u "$tmp" -o "$tmp"
+
+    # 4) конверсия одиночных IPv4 → /32
+    awk '
+      /\// { print; next }
+      /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { print $0 "/32"; next }
+      { print }
+    ' "$tmp" > "${tmp}.fixed" && mv "${tmp}.fixed" "$tmp"
+
+    # 5) теперь фильтруем только корректные CIDR
+    grep -E '/[0-9]+$' "$tmp" > "${tmp}.cidr"
+    mv "${tmp}.cidr" "$tmp"
+
+    # снова проверяем, что после фильтрации есть данные
+    if [ ! -s "$tmp" ]; then
+      log WARN "Нет валидных CIDR в $tmp, пропуск"
+      continue
+    fi
+
+    # 5) создание директории для сниппета
+    mkdir -p "$(dirname "$snip")"
+
+    # 6) генерация сниппета
+    {
+      printf "(defender_bad_ranges_%s) {\n" "$name"
+      printf "    ranges"
+      awk '{ printf " %s", $0 } END { printf "\n" }' "$tmp"
+      printf "}\n"
+    } > "$snip"
+
+    # проверяем, что сниппет создался и не пуст
+    if [ -s "$snip" ]; then
+      log INFO "✓ $snip обновлён ($(wc -l < "$tmp" | tr -d ' ') CIDR)"
     else
-      log WARN "Не удалось загрузить $url"
+      log ERROR "Не удалось создать сниппет $snip"
     fi
   done
-  total=$(wc -l < "$TMPFILE" | tr -d ' ')
-  log INFO "Загрузка завершена: $count из $(echo $SNIPPET_URLS | wc -w) URL, строк в файле: $total"
 
-  # 2) очистка TMPFILE: убрать комментарии, пустые строки, всё после ';'
-  sed -i \
-    -e 's/#.*$//' \
-    -e '/^[[:space:]]*$/d' \
-    -e '/^;/d' \
-    -e 's/;.*$//' \
-    -e 's/  \+/ /g' \
-    "$TMPFILE"
-  log INFO "Удалены комментарии, пустые строки и части после ';'"
+  log INFO "Обработано $processed из $total_expected URL"
 
-  # 2b) добавить /32 к одиночным IPv4 (без «/» в строке)
-  awk '
-    /\// { print; next }
-    /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { print $0 "/32"; next }
-    { print }' "$TMPFILE" > "${TMPFILE}.fixed"
-  mv "${TMPFILE}.fixed" "$TMPFILE"
-  log INFO "Одиночные IPv4 проконвертированы в /32"
 
-  # 3) сортировка и дедуп
-  sort -u "$TMPFILE" -o "$TMPFILE"
-  log INFO "Сортировка и дедупликация завершены (итого $(wc -l < "$TMPFILE" | tr -d ' ') уникальных диапазонов)"
-
-  # 4) генерация итогового сниппета
+    # 7) объединяющий сниппет
+  master="/etc/caddy/snippets/defender_all_ranges.caddy"
+  mkdir -p "$(dirname "$master")"
   {
-    printf '(defender_bad_ranges) {\n'
-    printf '    ranges'
-    awk '{ printf " %s", $0 } END { printf "\n" }' "$TMPFILE"
-    printf '}\n'
-  } > "$SNIPPET"
-  log INFO "Сниппет сгенерирован и записан в $SNIPPET"
+    echo "# Объединённый сниппет — импорт всех отдельных"
+
+    # Сначала файлы
+    for f in /etc/caddy/snippets/defender/*.caddy; do
+      echo "import $f"
+    done
+
+    echo    # пустая строка
+
+    # Затем определение самого сниппета — каждую часть подключаем как snippet
+    printf "(defender_all_ranges) {\n"
+    for f in /etc/caddy/snippets/defender/*.caddy; do
+      name=$(basename "$f" .caddy)
+      printf "    import %s\n" "defender_bad_ranges_$name"
+    done
+    printf "}\n"
+  } > "$master"
+
+  if [ -s "$master" ]; then
+    log INFO "✓ Объединяющий сниппет сгенерирован: $master"
+  else
+    log ERROR "Не удалось создать объединяющий сниппет $master"
+  fi
+
+  set -e
+
 }
 
+
 # --- Цикл генерации сниппета каждые 1ч ---
-start_snippet_loop() {
+start_snippets_defender_loop() {
   log INFO "Запуск цикла генерации сниппета (каждые 1ч)..."
   while :; do
-    generate_snippet
+    generate_snippets_defender
     sleep 3600
   done
 }
@@ -217,29 +300,71 @@ run_caddy() {
   add_pid $!
 }
 
-# --- Главная функция ---
-main() {
-  load_config
-  setup_signal_handlers
-  ensure_nss_db
+crowdsec_key_check() {
+  # ждём, пока LAPI станет жив
+  until curl -sf "${LAPI_URL}"; do
+    log WARN "Waiting for CrowdSec LAPI at ${LAPI_URL}..."
+    sleep 2
+  done
 
-  if [ "$SKIP_FUNCTIONAL" = "false" ]; then
-    start_pem_loop &
-    add_pid $!
-
-    start_snippet_loop &
-    add_pid $!
-
-    watch_config &
-    add_pid $!
+  # если файл отсутствует — надо получать
+  NEED_NEW_KEY=0
+  if [ ! -f "${KEY_FILE}" ] || [ ! -s "${KEY_FILE}" ]; then
+    log INFO "API key file missing or empty — will (re)create."
+    NEED_NEW_KEY=1
   else
-    log INFO "SKIP_FUNCTIONAL=true — запускаем только Caddy."
+    # проверяем, принимается ли текущий ключ
+    EXISTING_KEY=$(cat "${KEY_FILE}")
+    HTTP_STATUS=$(curl -o /dev/null -s -w '%{http_code}' \
+      -H "X-Api-Key: ${EXISTING_KEY}" "${LAPI_URL}/bouncers")
+    if [ "${HTTP_STATUS}" -eq 401 ] || [ "${HTTP_STATUS}" -eq 403 ]; then
+      log WARN "Existing API key is invalid (HTTP ${HTTP_STATUS}) — will recreate."
+      NEED_NEW_KEY=1
+    else
+      log INFO "Existing API key is valid (HTTP ${HTTP_STATUS})."
+    fi
   fi
 
-  run_caddy
+  if [ "${NEED_NEW_KEY}" -eq 1 ]; then
+    # создаём или получаем ключ
+    log INFO "Creating/getting new API key for 'caddy'..."
+    RESPONSE=$(curl -sf -H "Content-Type: application/json" \
+      -d '{"type":"http","name":"caddy"}' \
+      "${LAPI_URL}/bouncers")
+    # парсим
+    NEW_KEY=$(printf '%s' "${RESPONSE}" | jq -r '.apiKey')
+    if [ -z "${NEW_KEY}" ] || [ "${NEW_KEY}" = "null" ]; then
+      log ERROR "Не удалось получить API key from LAPI: ${RESPONSE}"
+      exit 1
+    fi
+    echo "${NEW_KEY}" > "${KEY_FILE}"
+    chmod 600 "${KEY_FILE}"
+    log INFO "✔️  New API key saved to ${KEY_FILE}"
+  fi
 
-  # Ждём завершения Caddy (ENTRYPOINT не завершится)
-  wait
+  # экспорт для Caddy
+  export CROWDSEC_API_KEY
+  CROWDSEC_API_KEY=$(cat "${KEY_FILE}")
+  log DEBUG "CROWDSEC_API_KEY is set."
+}
+
+# --- Главная функция ---
+main() {
+    load_config
+    setup_signal_handlers
+    ensure_nss_db
+    crowdsec_key_check
+
+    if [ "$SKIP_FUNCTIONAL" = "false" ]; then
+        start_pem_loop & add_pid $!
+        # start_snippets_defender_loop & add_pid $!
+        watch_config & add_pid $!
+    else
+        log INFO "SKIP_FUNCTIONAL=true — only starting Caddy."
+    fi
+
+    run_caddy
+    wait
 }
 
 # --- Точка входа ---
