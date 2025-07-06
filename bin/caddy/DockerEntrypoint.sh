@@ -8,13 +8,14 @@ set -euo pipefail
 # ----------------------------------------
 
 # --- Параметры окружения (с значениями по умолчанию) ---
-CONFIG_COOLDOWN=${CONFIG_COOLDOWN:-5}          # Пауза между перезагрузками (сек)
 CERT_DIR=${CERT_DIR:-/data/caddy/certificates/acme-v02.api.letsencrypt.org-directory}  # Корень ACME-сертификатов
-USE_JSON=${USE_JSON:-false}                    # Использовать JSON-конфиг вместо Caddyfile
-SKIP_FUNCTIONAL=${SKIP_FUNCTIONAL:-false}      # true — только запускаем Caddy, без лупов и watcher
+CONFIG_COOLDOWN=${CONFIG_COOLDOWN:-10}          # Пауза между перезагрузками (сек)
+USE_JSON=${USE_JSON:-false}                     # Использовать JSON-конфиг вместо Caddyfile
+SKIP_FUNCTIONAL=${SKIP_FUNCTIONAL:-false}       # true — только запускаем Caddy, без лупов и watcher
+LOGLEVEL=${LOGLEVEL:-INFO}                      # Уровень логирования (DEBUG|INFO|WARN|ERROR)
 
 # snippet-параметры
-TMPFILE=${TMPFILE:-/tmp/defender_cidrs.txt}                                                     # Временный файл CIDR
+TMPFILE=${TMPFILE:-/tmp/defender_cidrs.txt}                                             # Временный файл CIDR
 SNIPPET=${SNIPPET:-/etc/caddy/defender_bad_ranges.caddy}                                # Итоговый сниппет
 SNIPPET_URLS=${SNIPPET_URLS:-"\
 https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset \
@@ -127,21 +128,32 @@ generate_snippet() {
   # подготовка
   mkdir -p "$(dirname "$SNIPPET")"
   : > "$TMPFILE"
-  # загрузка и очистка
+
+  # 1) загрузка всех списков в TMPFILE
   for url in $SNIPPET_URLS; do
-    curl -fsSL "$url" \
-      | sed -e 's/#.*$//' -e '/^[[:space:]]*$/d' \
-      >> "$TMPFILE" || log WARN "Не удалось загрузить $url"
+    curl -fsSL "$url" >> "$TMPFILE" \
+      || log WARN "Не удалось загрузить $url"
   done
-  # сортировка и дедуп
+
+  # 2) очистка TMPFILE: удалить комментарии и пустые строки, удалить хвосты после ';'
+  sed -i \
+    -e 's/#.*$//'         \
+    -e '/^[[:space:]]*$/d'\
+    -e '/^;/d'            \
+    -e 's/;.*$//'         \
+    "$TMPFILE"
+
+  # 3) сортировка и дедуп
   sort -u "$TMPFILE" -o "$TMPFILE"
-  # генерация итогового сниппета
+
+  # 4) генерация итогового сниппета
   {
     printf '(defender_bad_ranges) {\n'
     printf '    ranges'
     awk '{ printf " %s", $0 } END { printf "\n" }' "$TMPFILE"
     printf '}\n'
   } > "$SNIPPET"
+
   log INFO "Сниппет обновлён: $SNIPPET"
 }
 
