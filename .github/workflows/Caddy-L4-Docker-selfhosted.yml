@@ -102,13 +102,11 @@ jobs:
           echo "skip=$skip" >> $GITHUB_OUTPUT
         shell: bash
 
-
-
   build:
     needs: prepare
     # запускаем, если upstream не пропущен (skip=false) И при этом
     # не включён skip_build; force_build при этом всегда переписывает skip в true
-    if: ${{ needs.prepare.outputs.skip == 'false' && github.event.inputs.build_skip == 'false' }}
+    if: ${{ needs.prepare.outputs.skip != 'true' && github.event.inputs.build_skip != 'true' }}
     runs-on: self-hosted
     outputs:
       repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
