@@ -33,7 +33,9 @@ RUN apk --no-cache --update add \
   unzip \
   ca-certificates \
   socat \
-  curl
+  curl \
+  mc \
+  jq \
   && update-ca-certificates
 
 ENV TZ=Europe/Moscow

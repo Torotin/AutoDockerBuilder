@@ -11,10 +11,15 @@ RUN apk add --no-cache \
        make \
        libc-dev \
        linux-headers \
+       mc \
+       nano \
     && update-ca-certificates
 
 # Собираем Caddy с нужными плагинами
 RUN xcaddy build \
+    --with github.com/KimMachineGun/automemlimit \
+    --with pkg.jsn.cam/caddy-defender \
+    --with github.com/mholt/caddy-ratelimit \
     --with github.com/abiosoft/caddy-json-schema \
     --with github.com/abiosoft/caddy-inspect \
     --with github.com/abiosoft/caddy-exec \
@@ -22,7 +27,9 @@ RUN xcaddy build \
     --with github.com/caddyserver/cache-handler \
     --with github.com/mholt/caddy-l4 \
     --with github.com/greenpau/caddy-security \
-    --with github.com/KimMachineGun/automemlimit
+    --with github.com/hslatman/caddy-crowdsec-bouncer/http \
+    --with github.com/hslatman/caddy-crowdsec-bouncer/layer4 \
+    --with github.com/hslatman/caddy-crowdsec-bouncer/appsec
 
 # -------- Stage 2: Runtime --------
 FROM caddy AS final
@@ -39,6 +46,7 @@ RUN apk add --no-cache \
     coreutils \
     inotify-tools \
     openssl \
+    jq \
     iproute2  
 
 # Копируем скомпилированный бинарь Caddy
