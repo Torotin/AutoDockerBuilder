@@ -30,7 +30,7 @@ on:
   push:
     paths:
       - '.github/workflows/3x-ui-Docker-selfhosted.yml'
-      - 'bin/caddy/**'
+      - 'bin/3x-ui/**'
     branches: [ main, test ]
   schedule:
     - cron: '0 2 * * *'

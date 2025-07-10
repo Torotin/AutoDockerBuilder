@@ -228,13 +228,16 @@ random_html() {
     $cp_cmd "$selected_template/." "$sitedir"
 }
 
-start_upstream_healthcheck_loop() {
-  local interval="${HEALTHCHECK_INTERVAL:-300}"     # по умолчанию 5 минут
-  local timeout="${HEALTHCHECK_TIMEOUT:-30}"        # таймаут curl
-  local max_fails="${HEALTHCHECK_MAX_FAILURES:-3}"  # порог фейлов
+upstream_healthcheck_loop() {
+  local interval="${HEALTHCHECK_INTERVAL:-300}"         # Интервал между проверками
+  local timeout="${HEALTHCHECK_TIMEOUT:-30}"            # Таймаут curl
+  local max_fails="${HEALTHCHECK_MAX_FAILURES:-3}"      # Порог "fails"
   local url="${HEALTHCHECK_URL:-http://localhost:2019/reverse_proxy/upstreams}"
+  local initial_delay="${HEALTHCHECK_INITIAL_DELAY:-60}"  # Задержка перед первой проверкой
 
-  log INFO "Старт healthcheck upstream'ов Caddy: $url (каждые ${interval}s, порог фейлов: $max_fails)..."
+  log INFO "Старт healthcheck upstream'ов Caddy: $url (через ${initial_delay}s, затем каждые ${interval}s, порог фейлов: $max_fails)..."
+
+  sleep "$initial_delay"
 
   while :; do
     if ! output=$(curl -sf --max-time "$timeout" "$url"); then
@@ -265,7 +268,7 @@ main() {
   if [ "$CLEAR_START" = "false" ]; then
       start_pem_loop & add_pid $!
       watch_config & add_pid $!
-      start_upstream_healthcheck_loop & add_pid $!
+      upstream_healthcheck_loop & add_pid $!
   else
       log INFO "CLEAR_START=true — only starting Caddy."
   fi
