@@ -26,7 +26,6 @@ https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/stopforumspam_
 https://www.spamhaus.org/drop/drop.txt"}  # Список URL для обновления CIDR
 
 # Crowdsec API
-KEY_FILE=/etc/caddy/crowdsec_api_key
 LAPI_URL=${LAPI_URL:-http://127.0.0.1:8080/v1}
 
 # --- Глобальные переменные (дальнейшая инициализация) ---
@@ -126,148 +125,6 @@ start_pem_loop() {
   done
 }
 
-# --- Генерация сниппета (однократно) ---
-generate_snippets_defender() {
-  log INFO "Обновление всех сниппетов CIDR по каждому источнику..."
-  set +e
-
-  DEFENDER_SNIPPET_DIR=/etc/caddy/snippets/defender
-  mkdir -p "$DEFENDER_SNIPPET_DIR"
-  # Преобразуем DEFENDER_SNIPPET_URLS в список строк
-  DEFENDER_URLS_LIST=$(printf '%s\n' "$DEFENDER_SNIPPET_URLS" | sed '/^[[:space:]]*$/d')
-  total_expected=$(printf '%s\n' "$DEFENDER_URLS_LIST" | wc -l | tr -d ' ')
-
-  processed=0
-  for url in $DEFENDER_SNIPPET_URLS; do
-    processed=$((processed + 1))
-
-    # вычисляем имена
-    name=$(basename "$url" | sed 's/\..*$//')
-    tmp="/tmp/defender_${name}.txt"
-    snip="$DEFENDER_SNIPPET_DIR/${name}.caddy"
-
-    log INFO "Источник $url → $snip"
-
-    # 1) загрузка
-    if ! curl -fsSL "$url" > "$tmp"; then
-      log WARN "Не удалось загрузить $url, пропуск"
-      continue
-    fi
-
-    # проверяем, что файл не пустой
-    if [ ! -s "$tmp" ]; then
-      log WARN "Файл $tmp пустой после загрузки, пропуск"
-      continue
-    fi
-    
-    # удаляем свой публичный IPv4/IPv6, если он есть (в форме с /32 и без)
-    if [ -n "${PUBLIC_IPV4:-}" ]; then
-      sed -i \
-        -e "/^${PUBLIC_IPV4}$/d" \
-        -e "/^${PUBLIC_IPV4}\/32$/d" \
-        "$tmp"
-    fi
-    if [ -n "${PUBLIC_IPV6:-}" ]; then
-      sed -i \
-        -e "/^${PUBLIC_IPV6}$/d" \
-        -e "/^${PUBLIC_IPV6}\/32$/d" \
-        "$tmp"
-    fi
-
-    # 2) очистка
-    sed -i \
-      -e 's/#.*$//' \
-      -e '/^[[:space:]]*$/d' \
-      -e '/^;/d' \
-      -e 's/;.*$//' \
-      -e 's/^[[:space:]]*//' \
-      -e 's/[[:space:]]*$//' \
-      "$tmp"
-
-    # 3) сортировка + дедуп
-    sort -u "$tmp" -o "$tmp"
-
-    # 4) конверсия одиночных IPv4 → /32
-    awk '
-      /\// { print; next }
-      /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { print $0 "/32"; next }
-      { print }
-    ' "$tmp" > "${tmp}.fixed" && mv "${tmp}.fixed" "$tmp"
-
-    # 5) теперь фильтруем только корректные CIDR
-    grep -E '/[0-9]+$' "$tmp" > "${tmp}.cidr"
-    mv "${tmp}.cidr" "$tmp"
-
-    # снова проверяем, что после фильтрации есть данные
-    if [ ! -s "$tmp" ]; then
-      log WARN "Нет валидных CIDR в $tmp, пропуск"
-      continue
-    fi
-
-    # 5) создание директории для сниппета
-    mkdir -p "$(dirname "$snip")"
-
-    # 6) генерация сниппета
-    {
-      printf "(defender_bad_ranges_%s) {\n" "$name"
-      printf "    ranges"
-      awk '{ printf " %s", $0 } END { printf "\n" }' "$tmp"
-      printf "}\n"
-    } > "$snip"
-
-    # проверяем, что сниппет создался и не пуст
-    if [ -s "$snip" ]; then
-      log INFO "✓ $snip обновлён ($(wc -l < "$tmp" | tr -d ' ') CIDR)"
-    else
-      log ERROR "Не удалось создать сниппет $snip"
-    fi
-  done
-
-  log INFO "Обработано $processed из $total_expected URL"
-
-
-    # 7) объединяющий сниппет
-  master="/etc/caddy/snippets/defender_all_ranges.caddy"
-  mkdir -p "$(dirname "$master")"
-  {
-    echo "# Объединённый сниппет — импорт всех отдельных"
-
-    # Сначала файлы
-    for f in /etc/caddy/snippets/defender/*.caddy; do
-      echo "import $f"
-    done
-
-    echo    # пустая строка
-
-    # Затем определение самого сниппета — каждую часть подключаем как snippet
-    printf "(defender_all_ranges) {\n"
-    for f in /etc/caddy/snippets/defender/*.caddy; do
-      name=$(basename "$f" .caddy)
-      printf "    import %s\n" "defender_bad_ranges_$name"
-    done
-    printf "}\n"
-  } > "$master"
-
-  if [ -s "$master" ]; then
-    log INFO "✓ Объединяющий сниппет сгенерирован: $master"
-  else
-    log ERROR "Не удалось создать объединяющий сниппет $master"
-  fi
-
-  set -e
-
-}
-
-
-# --- Цикл генерации сниппета каждые 1ч ---
-start_snippets_defender_loop() {
-  log INFO "Запуск цикла генерации сниппета (каждые 1ч)..."
-  while :; do
-    generate_snippets_defender
-    sleep 3600
-  done
-}
-
 # --- Наблюдение за каталогом /etc/caddy ---
 watch_config() {
   log INFO "Наблюдение за /etc/caddy ($WATCH_NAME)..."
@@ -300,88 +157,125 @@ run_caddy() {
   add_pid $!
 }
 
-crowdsec_key_check() {
-  # Пропускаем, если отключено
-  if [ "${CROWDSEC_ENABLED:-true}" != "true" ]; then
-    log INFO "CROWDSEC_ENABLED=false — пропускаем проверку CrowdSec"
-    return 0
-  fi
+random_html() {
+    # === ПЕРЕМЕННЫЕ ===
+    sitedir="${SITEDIR:-/srv}"
+    temp_dir="${TMPDIR:-/tmp}"
+    temp_extract="$temp_dir/random_html_tmp"
+    repo_url="${TEMPLATE_REPO_URL:-https://github.com/GFW4Fun/randomfakehtml/archive/refs/heads/master.zip}"
+    archive_name="${ARCHIVE_NAME:-master.zip}"
+    extracted_dir="${EXTRACTED_DIR:-randomfakehtml-master}"
+    extracted_path="$temp_extract/$extracted_dir"
 
-  # Подготовка папки для ключа
-  mkdir -p "$(dirname "$KEY_FILE")"
+    unzip_cmd="${UNZIP_CMD:-unzip -q}"
+    wget_cmd="${WGET_CMD:-wget -q}"
+    rm_cmd="${RM_CMD:-rm -rf}"
+    cp_cmd="${CP_CMD:-cp -a}"
 
-  # Ждём доступности LAPI (таймаут 60s)
-  deadline=$((SECONDS + 60))
-  until curl -sS -o /dev/null "${LAPI_URL}/health"; do
-    [ $SECONDS -ge $deadline ] && {
-      log ERROR "CrowdSec LAPI не отвечает в течение 60s, пропускаем"
-      return 1
+    # === ПОДГОТОВКА ВРЕМЕННОЙ ДИРЕКТОРИИ ===
+    $rm_cmd "$temp_extract" >/dev/null 2>&1 || true
+    mkdir -p "$temp_extract" || {
+        log "ERROR" "Не удалось создать временную директорию: $temp_extract"
+        return 0
     }
-    log WARN "Ожидание CrowdSec LAPI на ${LAPI_URL}/health..."
-    sleep 2
-  done
 
-  # Если файл ключа есть и непустой — проверяем
-  if [ -s "${KEY_FILE}" ]; then
-    EXISTING_KEY=$(cat "${KEY_FILE}")
-    STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-      -H "X-Api-Key: ${EXISTING_KEY}" \
-      "${LAPI_URL}/bouncers")
-    if [ "$STATUS" -eq 200 ]; then
-      log INFO "Существующий API-ключ валиден (HTTP $STATUS)."
-      export CROWDSEC_API_KEY="$EXISTING_KEY"
-      return 0
+    archive_path="$temp_extract/$archive_name"
+
+    # === ЗАГРУЗКА И РАСПАКОВКА ===
+    $wget_cmd "$repo_url" -O "$archive_path"
+    $unzip_cmd "$archive_path" -d "$temp_extract"
+    $rm_cmd "$archive_path"
+
+    if [ ! -d "$extracted_path" ]; then
+        log "ERROR" "Извлечённая директория не найдена: $extracted_path"
+        return 0
+    fi
+
+    # === ПОИСК ШАБЛОНОВ ===
+    template_dirs=""
+    for d in "$extracted_path"/*; do
+        [ -d "$d" ] && [ "$(basename "$d")" != "assets" ] && template_dirs="$template_dirs $d"
+    done
+
+    if [ -z "$template_dirs" ]; then
+        log "ERROR" "Шаблоны не найдены в $extracted_path"
+        return 0
+    fi
+
+    # === ВЫБОР СЛУЧАЙНОГО ШАБЛОНА ===
+    set -- $template_dirs
+    count=$#
+    rand_index=$(awk -v max="$count" 'BEGIN { srand(); print int(rand() * max) + 1 }')
+    i=1
+    for path in "$@"; do
+        [ "$i" -eq "$rand_index" ] && selected_template="$path" && break
+        i=$((i + 1))
+    done
+
+    log "INFO" "Выбран шаблон: $(basename "$selected_template")"
+
+    # === ПОДГОТОВКА КАТАЛОГА НАЗНАЧЕНИЯ ===
+    if [ -d "$sitedir" ]; then
+        $rm_cmd "$sitedir"/* "$sitedir"/.[!.]* "$sitedir"/..?* 2>/dev/null || true
     else
-      log WARN "Старый ключ не валиден (HTTP $STATUS), запросим новый."
-    fi
-  else
-    log INFO "API key file отсутствует или пуст — запросим новый."
-  fi
-
-  # Пытаемся получить новый ключ (до 3 попыток, backoff)
-  attempts=0
-  until [ $attempts -ge 3 ]; do
-    RESPONSE=$(curl -sS -H "Content-Type: application/json" \
-      -d '{"type":"http","name":"caddy"}' \
-      "${LAPI_URL}/bouncers")
-    NEW_KEY=$(printf '%s' "$RESPONSE" | jq -r '.apiKey // empty')
-
-    if [ -n "$NEW_KEY" ]; then
-      # Сохраняем и экспортируем
-      echo "$NEW_KEY" > "$KEY_FILE"
-      chmod 600 "$KEY_FILE"
-      log INFO "Новый API-ключ сохранён в $KEY_FILE"
-      export CROWDSEC_API_KEY="$NEW_KEY"
-      return 0
+        mkdir -p "$sitedir" || {
+            log "ERROR" "Не удалось создать каталог назначения: $sitedir"
+            return 0
+        }
     fi
 
-    # Ошибка: логируем фрагмент ответа и ждём
-    log ERROR "Не удалось получить API-ключ (попытка $((attempts+1))): ${RESPONSE:0:300}"
-    attempts=$((attempts+1))
-    sleep $((attempts * 5))
+    # === КОПИРОВАНИЕ ШАБЛОНА ===
+    $cp_cmd "$selected_template/." "$sitedir"
+}
+
+start_upstream_healthcheck_loop() {
+  local interval="${HEALTHCHECK_INTERVAL:-300}"     # по умолчанию 5 минут
+  local timeout="${HEALTHCHECK_TIMEOUT:-30}"        # таймаут curl
+  local max_fails="${HEALTHCHECK_MAX_FAILURES:-3}"  # порог фейлов
+  local url="${HEALTHCHECK_URL:-http://localhost:2019/reverse_proxy/upstreams}"
+
+  log INFO "Старт healthcheck upstream'ов Caddy: $url (каждые ${interval}s, порог фейлов: $max_fails)..."
+
+  while :; do
+    if ! output=$(curl -sf --max-time "$timeout" "$url"); then
+      log ERROR "Healthcheck: не удалось получить данные от API Caddy ($url). Перезапуск."
+      kill 1
+    fi
+
+    fails=$(printf '%s\n' "$output" | grep -o '"fails":[0-9]*' | cut -d: -f2)
+
+    for count in $fails; do
+      if [ "$count" -ge "$max_fails" ]; then
+        log ERROR "Healthcheck: обнаружен upstream с fails=$count (порог $max_fails). Перезапуск."
+        kill 1
+      fi
+    done
+
+    log DEBUG "Healthcheck: все upstream'ы в норме (fails: $fails)"
+    sleep "$interval"
   done
-
-  log ERROR "После $attempts попыток не удалось получить API-ключ CrowdSec."
-  return 1
 }
 
 # --- Главная функция ---
 main() {
-    load_config
-    setup_signal_handlers
-    ensure_nss_db
+  load_config
+  setup_signal_handlers
+  ensure_nss_db
 
-    if [ "$CLEAR_START" = "false" ]; then
-        # crowdsec_key_check
-        # start_snippets_defender_loop & add_pid $!
-        start_pem_loop & add_pid $!
-        watch_config & add_pid $!
-    else
-        log INFO "CLEAR_START=true — only starting Caddy."
-    fi
+  if [ "$CLEAR_START" = "false" ]; then
+      start_pem_loop & add_pid $!
+      watch_config & add_pid $!
+      start_upstream_healthcheck_loop & add_pid $!
+  else
+      log INFO "CLEAR_START=true — only starting Caddy."
+  fi
 
-    run_caddy
-    wait
+  if [ ! -f /srv/index.html ]; then
+    random_html
+  fi
+
+  run_caddy
+  wait
 }
 
 # --- Точка входа ---

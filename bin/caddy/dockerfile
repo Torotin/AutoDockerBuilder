@@ -11,8 +11,6 @@ RUN apk add --no-cache \
        make \
        libc-dev \
        linux-headers \
-       mc \
-       nano \
     && update-ca-certificates
 
 # Собираем Caddy с нужными плагинами
@@ -47,6 +45,10 @@ RUN apk add --no-cache \
     inotify-tools \
     openssl \
     jq \
+    wget \
+    unzip \
+    mc \
+    nano \
     iproute2  
 
 # Копируем скомпилированный бинарь Caddy
@@ -64,7 +66,7 @@ RUN set -eux; \
     test -n "$DIST_TAG" || (echo "Error: failed to fetch dist tag" >&2; exit 1); \
     echo "Using dist tag: $DIST_TAG"; \
     curl -fsSL "https://raw.githubusercontent.com/caddyserver/dist/${DIST_TAG}/config/Caddyfile" -o /etc/caddy/Caddyfile; \
-    curl -fsSL "https://raw.githubusercontent.com/caddyserver/dist/${DIST_TAG}/welcome/index.html" -o /usr/share/caddy/index.html; \
+    curl -fsSL "https://raw.githubusercontent.com/caddyserver/dist/${DIST_TAG}/welcome/index.html" -o /srv/index.html; \
     setcap cap_net_bind_service=+ep /usr/bin/caddy; \
     chmod +x /usr/bin/caddy; \
     caddy version
