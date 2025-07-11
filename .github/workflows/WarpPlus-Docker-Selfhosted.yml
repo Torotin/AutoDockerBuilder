@@ -125,6 +125,9 @@ jobs:
             cp "${{ env.CUSTOM_CONFIG }}" example_config.json
           fi
 
+      - name: 🧩 Copy upstream code into root for Docker context
+        run: cp -r ${{ env.WORKDIR }}/* .
+
       - name: 📄 Verify Dockerfile exists
         run: |
           set -e
@@ -177,10 +180,11 @@ jobs:
 
       - name: 📦 Archive latest image
         run: |
-          img="${{ env.DOCKER_REPO }}:latest"
-          docker pull "$img"
+          safe="multiarch"
+          tag="${{ env.DOCKER_REPO }}:latest"
+          docker pull "$tag"
           docker save -o "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-${safe}-${{ needs.prepare.outputs.repo_tag }}.tar" "$tag"
-          gzip "${{ env.PROJECT_NAME }}-${safe}-${{ needs.prepare.outputs.repo_tag }}.tar"
+          gzip "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-${safe}-${{ needs.prepare.outputs.repo_tag }}.tar"
           echo "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-${safe}-${{ needs.prepare.outputs.repo_tag }}.tar.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
 
       - name: 📋 Generate Markdown list of platforms
@@ -199,8 +203,8 @@ jobs:
       - name: 🚀 Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: Caddy-L4_${{ needs.build.outputs.repo_tag }}
-          name: "Caddy-L4 Release ${{ needs.build.outputs.repo_tag }}"
+          tag_name: warp-plus_${{ needs.build.outputs.repo_tag }}
+          name: "Warp Plus Release ${{ needs.build.outputs.repo_tag }}"
           token: ${{ secrets.GIT_TOKEN }}
           prerelease: false
           body: |

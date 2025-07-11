@@ -3,26 +3,11 @@
 # ========================================================
 FROM golang:alpine AS builder
 
-ARG TARGETARCH
-ENV TZ=Europe/Moscow
-
-# Основная рабочая директория
 WORKDIR /app
+RUN apk --no-cache add build-base gcc git tzdata jq
 
-# Устанавливаем зависимости
-RUN apk --no-cache --update add \
-  build-base \
-  gcc \
-  wget \
-  unzip \
-  tzdata \
-  jq \
-  git
+COPY . .
 
-# Копируем только содержимое workdir (а не весь .git-обёрнутый корень)
-COPY ./workdir/ ./
-
-# Сборка бинарника
 RUN mkdir -p build && \
     unset GOFLAGS && \
     go mod tidy && \
@@ -46,7 +31,7 @@ COPY --from=builder /app/DockerEntrypoint.sh /app/
 COPY --from=builder /app/example_config.json /app/config.json.template
 
 RUN chmod +x \
-  /usr/bin/warp-plus \
-  /app/DockerEntrypoint.sh
+    /usr/bin/warp-plus \
+    /app/DockerEntrypoint.sh
 
 ENTRYPOINT [ "./DockerEntrypoint.sh" ]
