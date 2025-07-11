@@ -10,7 +10,7 @@ on:
       build_arm64:
         description: 'Build for arm64/v8'
         type: boolean
-        default: true
+        default: false
       build_386:
         description: 'Build for 386'
         type: boolean
