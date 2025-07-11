@@ -168,26 +168,29 @@ random_html() {
     extracted_path="$temp_extract/$extracted_dir"
 
     unzip_cmd="${UNZIP_CMD:-unzip -q}"
-    wget_cmd="${WGET_CMD:-wget -q}"
+    wget_cmd="${WGET_CMD:-wget}"
     rm_cmd="${RM_CMD:-rm -rf}"
     cp_cmd="${CP_CMD:-cp -a}"
 
     # === ПОДГОТОВКА ВРЕМЕННОЙ ДИРЕКТОРИИ ===
     $rm_cmd "$temp_extract" >/dev/null 2>&1 || true
     mkdir -p "$temp_extract" || {
-        log "ERROR" "Не удалось создать временную директорию: $temp_extract"
+        log ERROR "Не удалось создать временную директорию: $temp_extract"
         return 0
     }
 
     archive_path="$temp_extract/$archive_name"
 
     # === ЗАГРУЗКА И РАСПАКОВКА ===
+    log INFO "Загрузка $repo_url в $archive_path"
     $wget_cmd "$repo_url" -O "$archive_path"
+    log INFO "Распаковка $archive_path в $temp_extract"
     $unzip_cmd "$archive_path" -d "$temp_extract"
+    log INFO "Удаляем $archive_path"
     $rm_cmd "$archive_path"
 
     if [ ! -d "$extracted_path" ]; then
-        log "ERROR" "Извлечённая директория не найдена: $extracted_path"
+        log ERROR "Извлечённая директория не найдена: $extracted_path"
         return 0
     fi
 
@@ -198,7 +201,7 @@ random_html() {
     done
 
     if [ -z "$template_dirs" ]; then
-        log "ERROR" "Шаблоны не найдены в $extracted_path"
+        log ERROR "Шаблоны не найдены в $extracted_path"
         return 0
     fi
 
@@ -212,7 +215,7 @@ random_html() {
         i=$((i + 1))
     done
 
-    log "INFO" "Выбран шаблон: $(basename "$selected_template")"
+    log INFO "Выбран шаблон: $(basename "$selected_template")"
 
     # === ПОДГОТОВКА КАТАЛОГА НАЗНАЧЕНИЯ ===
     if [ -d "$sitedir" ]; then
@@ -225,6 +228,7 @@ random_html() {
     fi
 
     # === КОПИРОВАНИЕ ШАБЛОНА ===
+    log INFO "Копируем шаблон $selected_template в $sitedir"
     $cp_cmd "$selected_template/." "$sitedir"
 }
 

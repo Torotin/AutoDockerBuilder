@@ -1,103 +1,160 @@
-name: WarpPlus-Docker
+name: warp-plus-Docker-Selfhosted
+
 on:
-  repository_dispatch:
   workflow_dispatch:
+    inputs:
+      build_amd64:
+        description: 'Build for amd64'
+        type: boolean
+        default: true
+      build_arm64:
+        description: 'Build for arm64/v8'
+        type: boolean
+        default: true
+      build_386:
+        description: 'Build for 386'
+        type: boolean
+        default: false
+      build_skip:
+        description: 'Skip build'
+        type: boolean
+        default: false
+      build_force:
+        description: 'Force build'
+        type: boolean
+        default: false
+      release_skip:
+        description: 'Skip release'
+        type: boolean
+        default: false
+
+  push:
+    paths:
+      - '.github/workflows/warp-plus-Docker-Selfhosted.yml'
+      - 'bin/warp/**'
+    branches: [ main, test ]
 
 env:
-  repo_url: 'https://github.com/bepass-org/warp-plus.git'
-  docker-repo: 'torotin/warp-plus'
-  docker-file-path: ''
-  platforms: 'linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64'
+  PROJECT_NAME: warp-plus
+  REPO_EXT_URL: https://github.com/bepass-org/warp-plus.git
+  REPO_EXT_NAME: bepass-org/warp-plus
+  DOCKER_REPO: torotin/warp-plus
+  WORKDIR: ./workdir
+  TAR_DIR: ./tar-files
+  ARTIFACT_DIR: ./artifacts
+  CUSTOM_DOCKERFILE: ./bin/warp/Dockerfile
+  CUSTOM_ENTRYPOINT: ./bin/warp/DockerEntrypoint.sh
+  CUSTOM_CONFIG: ./bin/warp/example_config.json
+  CRON_SCHEDULE: 0 4 * * *
+  CUSTOM_FILES_GLOB: bin/warp/**
 
-jobs:  
-  build:  
-    runs-on: ubuntu-latest
-        
-    steps:  
-      - name: 'Checking'
-        uses: actions/checkout@v4
+jobs:
+  prepare:
+    runs-on: self-hosted
+    outputs:
+      repo_tag: ${{ steps.tag.outputs.repo_tag }}
+      release_tag: ${{ steps.tag.outputs.release_tag }}
+    steps:
+      - name: 🧹 Clean workspace
+        run: sudo find . -mindepth 1 -delete
 
-      - name: Init Env
+      - name: 🌐 Install dependencies
         run: |
-          sudo timedatectl set-timezone Asia/Shanghai
-          sudo apt-get install tree
-          sudo mkdir -p ./workdir
-          sudo chown $USER:$GROUPS ./workdir
-          echo "======== 🚀Directory structure ========"
-          tree -L 3
+          sudo timedatectl set-timezone Europe/Moscow
+          sudo apt-get update && sudo apt-get install -y jq curl tree
 
-      - name: Clone Repo
-        run: |
-          git clone ${{ env.repo_url }} ./workdir
-      
-      - name: Repo Tag
-        working-directory: ./workdir
+      - uses: actions/checkout@v4
+
+      - name: 📦 Clone upstream repo
+        run: git clone ${{ env.REPO_EXT_URL }} ${{ env.WORKDIR }}
+
+      - name: 🏷 Get latest tag
         id: tag
+        working-directory: ${{ env.WORKDIR }}
         run: |
-          echo "repo_tag=$(git describe --tags `git rev-list --tags --max-count=1`)" >> $GITHUB_OUTPUT
-          echo "release_tag=$(date +"%Y.%m.%d-%H%M%S")" >> $GITHUB_OUTPUT >> $GITHUB_OUTPUT
+          repo_tag=$(git describe --tags $(git rev-list --tags --max-count=1))
+          release_tag=$(date +"%Y.%m.%d-%H%M%S")
+          echo "repo_tag=$repo_tag" >> $GITHUB_OUTPUT
+          echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
 
-      - name: Modify file
+  build:
+    needs: prepare
+    runs-on: self-hosted
+    outputs:
+      repo_tag: ${{ needs.prepare.outputs.repo_tag }}
+      platforms: ${{ steps.platforms.outputs.platforms }}
+    if: ${{ github.event.inputs.build_skip != 'true' }}
+    steps:
+      - name: 🬸 Select platforms
+        id: platforms
         run: |
-          tree -L 3
-          echo "======== 🚀Dockerfile Info ========"
-          cp -rf ./bin/warp/Dockerfile ./workdir/
-          cat ./workdir/Dockerfile
-          echo "======== 🚀Warp Configuration ========"
-          cp -rf ./bin/warp/DockerEntrypoint.sh ./workdir/
-          cp -rf ./bin/warp/example_config.json ./workdir/
-          cat ./workdir/example_config.json
+          platforms=""
+          [ "${{ github.event.inputs.build_amd64 }}" = "true" ] && platforms="${platforms},linux/amd64"
+          [ "${{ github.event.inputs.build_arm64 }}" = "true" ] && platforms="${platforms},linux/arm64"
+          [ "${{ github.event.inputs.build_386 }}" = "true" ] && platforms="${platforms},linux/386"
+          platforms="${platforms#,}"
+          echo "platforms=$platforms" >> $GITHUB_OUTPUT
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: 🛠️ Copy Docker resources
+        run: |
+          cp -f ${{ env.CUSTOM_DOCKERFILE }} ${{ env.WORKDIR }}/Dockerfile
+          cp -f ${{ env.CUSTOM_ENTRYPOINT }} ${{ env.WORKDIR }}/DockerEntrypoint.sh
+          cp -f ${{ env.CUSTOM_CONFIG }} ${{ env.WORKDIR }}/example_config.json
 
-      - name: Set up Docker Buildx
+      - name: ⚙️ Setup Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to DockerHub
+      - name: ⚙️ Setup QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: 🔐 Login to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build docker
+      - name: 🏗️ Build and push
         id: docker
         uses: docker/build-push-action@v5
         with:
-          context: ./workdir
+          context: ${{ env.WORKDIR }}
+          platforms: ${{ steps.platforms.outputs.platforms }}
           push: true
-          file: ${{ env.docker-file-path }}
-          platforms: ${{ env.platforms }}
-          tags: | 
-            ${{ env.docker-repo }}:latest
-            ${{ env.docker-repo }}:${{ steps.tag.outputs.repo_tag }}
-      
-      - name: Image digest
-        run: echo ${{ steps.docker.outputs.digest }}
+          tags: |
+            ${{ env.DOCKER_REPO }}:latest
+            ${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}
 
-      - name: Docker pull to save
+  release:
+    needs: [build, prepare]
+    if: ${{ github.event.inputs.release_skip != 'true' }}
+    runs-on: self-hosted
+    steps:
+      - name: 📦 Pull & save images
         run: |
-          docker pull --platform linux/amd64 ${{ env.docker-repo }}:latest
-          docker save -o warp-plus-amd64-${{ steps.tag.outputs.repo_tag }}.tar ${{ env.docker-repo }}:latest
-          docker rmi ${{ env.docker-repo }}:latest
-          docker pull --platform linux/arm64 ${{ env.docker-repo }}:latest
-          docker save -o warp-plus-arm64-${{ steps.tag.outputs.repo_tag }}.tar ${{ env.docker-repo }}:latest
-        
-      - name: Create Release
-        id: release
-        uses: softprops/action-gh-release@v1
-        if: success() && !cancelled()
+          mkdir -p ${{ env.TAR_DIR }}
+          for platform in linux/amd64 linux/arm64; do
+            safe=${platform//\//-}
+            tag="${{ env.DOCKER_REPO }}:latest"
+            docker pull --platform $platform $tag
+            docker save -o ${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-${safe}-${{ needs.prepare.outputs.repo_tag }}.tar $tag
+          done
+
+      - name: 🚀 Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: ${{ github.workflow }} - ${{ steps.tag.outputs.repo_tag }}
+          tag_name: ${{ needs.prepare.outputs.release_tag }}
+          name: "${{ env.PROJECT_NAME }} - ${{ needs.prepare.outputs.repo_tag }}"
           token: ${{ secrets.GIT_TOKEN }}
-          prerelease: false
-          body: | 
-            Release Note:
-            - [ DockerHub🐬 ](https://hub.docker.com/r/${{ env.docker-repo }})
-            - 🎯Use: `docker pull bigbugcc/warp-plus:latest`
-            - 👇Or download the Docker image and import it manually
-          files: | 
-            ${{ steps.docker.outputs.metadata }}
-            warp-plus-amd64-${{ steps.tag.outputs.repo_tag }}.tar
-            warp-plus-arm64-${{ steps.tag.outputs.repo_tag }}.tar
+          body: |
+            ### 📦 Release Info
+            - [DockerHub Link](https://hub.docker.com/r/${{ env.DOCKER_REPO }})
+            - `docker pull ${{ env.DOCKER_REPO }}:latest`
+            - Manual import:
+              ```bash
+              docker load < warp-plus-amd64-${{ needs.prepare.outputs.repo_tag }}.tar
+              docker load < warp-plus-arm64-${{ needs.prepare.outputs.repo_tag }}.tar
+              ```
+          files: |
+            ${{ env.TAR_DIR }}/*.tar
