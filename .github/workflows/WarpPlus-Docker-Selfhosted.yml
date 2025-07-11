@@ -122,7 +122,7 @@ jobs:
           fi
           # Use custom Entrypoint if present
           if [ -f "${{ env.CUSTOM_CONFIG }}" ]; then
-            cp "${{ env.CUSTOM_CONFIG }}" config.json.template
+            cp "${{ env.CUSTOM_CONFIG }}" example_config.json
           fi
 
       - name: 📄 Verify Dockerfile exists

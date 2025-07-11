@@ -24,7 +24,9 @@ COPY . .
 RUN mkdir -p build
 
 # Сборка бинарника
-RUN go build -v -o build/ ./cmd/warp-plus
+RUN mkdir -p build && \
+    unset GOFLAGS && \
+    go build -v -o build/ -trimpath -ldflags="-checklinkname=0 -s -w" ./cmd/warp-plus
 
 # Создаём директорию конфигов (на всякий случай)
 RUN mkdir -p /etc/warp/
