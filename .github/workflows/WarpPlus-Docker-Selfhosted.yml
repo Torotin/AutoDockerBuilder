@@ -120,10 +120,6 @@ jobs:
           if [ -f "${{ env.CUSTOM_ENTRYPOINT }}" ]; then
             cp "${{ env.CUSTOM_ENTRYPOINT }}" DockerEntrypoint.sh
           fi
-          # Use custom Entrypoint if present
-          if [ -f "${{ env.CUSTOM_CONFIG }}" ]; then
-            cp "${{ env.CUSTOM_CONFIG }}" example_config.json
-          fi
 
       - name: 🧩 Copy upstream code into root for Docker context
         run: cp -r ${{ env.WORKDIR }}/* .
