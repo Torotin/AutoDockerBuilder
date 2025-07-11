@@ -1,6 +1,7 @@
 #!/bin/sh
 set -euo pipefail
 
+PIDS=""
 CONFIG="/etc/warp/config.json"
 mkdir -p "$(dirname "$CONFIG")"
 
@@ -25,6 +26,7 @@ mkdir -p "$(dirname "$CONFIG")"
 : "${IPV6:=false}"
 : "${EXCLUDE_COUNTRY:=}"
 : "${LOGLEVEL:=INFO}"
+: "${PIDS:=}"
 
 # === Log function ===
 log() {
@@ -58,7 +60,7 @@ log() {
 }
 
 add_pid() {
-  PIDS="$PIDS $1"
+  PIDS="${PIDS:-} $1"
 }
 
 kill_all() {
