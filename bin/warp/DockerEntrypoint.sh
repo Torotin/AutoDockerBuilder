@@ -72,6 +72,28 @@ if [ -z "$COUNTRY" ]; then
   log INFO "COUNTRY not set. Randomly selected: $COUNTRY"
 fi
 
+add_pid() {
+  PIDS="$PIDS $1"
+}
+
+kill_all() {
+  log WARN "Stopping background processes..."
+  for pid in $PIDS; do
+    kill "$pid" 2>/dev/null || true
+  done
+  wait
+}
+
+# --- Signal handlers ---
+reload_ignore() {
+  log INFO "Received SIGUSR1 — ignoring."
+}
+
+setup_signal_handlers() {
+  trap reload_ignore USR1
+  trap 'kill_all; log INFO "All processes stopped."; exit 0' TERM INT QUIT
+}
+
 # === Healthcheck function ===
 healthcheck_loop() {
   local interval="${HEALTHCHECK_INTERVAL:-300}"
@@ -86,7 +108,7 @@ healthcheck_loop() {
   sleep "$initial_delay"
 
   while :; do
-    if ! output=$(curl --socks5 127.0.0.1:1080 -sf --max-time "$timeout" "$url"); then
+    if ! output=$(curl --socks5 $BIND -sf --max-time "$timeout" "$url"); then
       log ERROR "Healthcheck: Failed to reach $url via SOCKS5. Triggering container restart."
       kill 1
     fi
@@ -160,16 +182,12 @@ if ! echo "$json" | jq . > "$CONFIG" 2>/dev/null; then
   exit 1
 fi
 
-if [ "$json" = "{}" ]; then
-  log WARN "Generated config is empty. No variables were provided."
-  log INFO "Set environment variables such as KEY or BIND to populate config."
-fi
-
 log INFO "Config successfully created:"
 cat "$CONFIG"
 
 log INFO "Launching healthcheck background loop..."
-healthcheck_loop &
+setup_signal_handlers
+healthcheck_loop & add_pid $!
 
 log INFO "Starting warp-plus..."
 exec /usr/bin/warp-plus -c "$CONFIG"

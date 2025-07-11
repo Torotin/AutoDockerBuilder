@@ -14,40 +14,38 @@ services:
     restart: unless-stopped
 
     ports:
-      - "1080:1080"     # Exposes SOCKS5 proxy
+      - "1080:1080"     # Expose SOCKS5 proxy
 
     environment:
-      # 🔑 Warp+ key (optional but required for full functionality)
-      KEY: ""
-
-      # 📍 Endpoint (e.g. 162.159.192.1:2408)
-      ENDPOINT: ""
-
-      # 🌐 SOCKS5 bind address
-      BIND: "0.0.0.0:1080"
-
-      # 🗺 Country (if not set — random country will be chosen)
+      KEY: ""                    # Optional Warp+ license key
+      ENDPOINT: ""              # Specific Warp endpoint
+      BIND: "0.0.0.0:1080"      # SOCKS5 listen address
       COUNTRY: ""
-      EXCLUDE_COUNTRY: "RU CN IR"
+      EXCLUDE_COUNTRY: "RU CN"
 
-      # ⚙️ Advanced flags
-      VERBOSE: "false"             # Enable verbose logging
-      GOOL: "false"                # Warp-in-Warp mode
-      CFON: "false"                # Psiphon mode (requires COUNTRY)
-      SCAN: "true"                 # Enable endpoint scanning
-      RTT: "1s"                    # RTT threshold
-      DNS: "1.1.1.1"               # DNS resolver
-      CACHE_DIR: "/etc/warp/cache/" # Scanner cache path
-      FWMARK: "0x1375"             # Linux fwmark for tun-mode (optional)
-      WGCONF: ""                   # Path to WireGuard config
-      TEST_URL: ""                 # Custom test URL
+      VERBOSE: "false"
+      GOOL: "false"
+      CFON: "false"
+      SCAN: "true"
+      RTT: "1s"
+      DNS: "1.1.1.1"
+      CACHE_DIR: "/etc/warp/cache/"
+      FWMARK: "0x1375"
+      WGCONF: ""
+      TEST_URL: ""
 
-      # 🌐 Protocol
-      IPV4: "true"                 # IPv4 only (default)
-      IPV6: "false"                # IPv6 only (mutually exclusive with IPV4)
+      IPV4: "true"
+      IPV6: "false"
+
+      # 🔍 Optional internal healthcheck config
+      HEALTHCHECK_INTERVAL: "300"
+      HEALTHCHECK_TIMEOUT: "30"
+      HEALTHCHECK_INITIAL_DELAY: "60"
+      HEALTHCHECK_MAX_FAILURES: "3"
+      HEALTHCHECK_URL: "https://ifconfig.me"
 
     volumes:
-      - ./warp-data:/etc/warp     # Persist config/cache
+      - ./warp-data:/etc/warp
 
     healthcheck:
       test: ["CMD", "curl", "--socks5", "localhost:1080", "--max-time", "5", "https://ifconfig.me"]
@@ -90,6 +88,19 @@ curl --socks5 127.0.0.1:1080 https://ifconfig.me
 | `CACHE_DIR`       | string | `/etc/warp/cache/` | Directory to store endpoint cache                                    |
 | `FWMARK`          | string | `0x1375`           | Linux fwmark for routing in tun-mode                                 |
 | `WGCONF`          | string | *(empty)*          | Path to a WireGuard config file                                      |
-| `TEST_URL`        | string | *(empty)*          | URL used to verify connectivity                                      |
 | `IPV4`            | bool   | `true`             | Use only IPv4 (mutually exclusive with `IPV6`)                       |
 | `IPV6`            | bool   | `false`            | Use only IPv6 (mutually exclusive with `IPV4`)                       |
+
+### ❤️ Internal Healthcheck Options
+
+These control the built-in background check that monitors if the container remains connected and valid.
+
+| Variable                    | Default               | Description                                                       |
+| --------------------------- | --------------------- | ----------------------------------------------------------------- |
+| `HEALTHCHECK_INTERVAL`      | `300`                 | Interval between health checks (in seconds)                       |
+| `HEALTHCHECK_TIMEOUT`       | `30`                  | Timeout for each check (in seconds)                               |
+| `HEALTHCHECK_INITIAL_DELAY` | `60`                  | Delay before the first check after container startup (in seconds) |
+| `HEALTHCHECK_MAX_FAILURES`  | `3`                   | Restart the container if any upstream reports `fails >= N`        |
+| `HEALTHCHECK_URL`           | `https://ifconfig.me` | The URL used to test proxy connectivity                           |
+
+ℹ️ This is **independent** of Docker's `healthcheck:` stanza — it runs inside the container and can terminate the main process to trigger restart.
