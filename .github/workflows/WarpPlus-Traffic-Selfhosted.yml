@@ -1,0 +1,39 @@
+name: WarpPlus-Traffic-Selfhosted
+
+on:
+  workflow_dispatch:
+
+env:
+  repo_url: ''
+  force_active: 2
+
+jobs:
+  sync:
+    runs-on: [self-hosted, linux]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install Python dependencies (if any)
+        run: |
+          echo "[INFO] Checking for requirements.txt..."
+          if [ -f ./bin/warp/requirements.txt ]; then
+            echo "[INFO] Installing dependencies from requirements.txt..."
+            pip install --upgrade pip
+            pip install -r ./bin/warp/requirements.txt
+          else
+            echo "[INFO] No requirements.txt found. Skipping installation."
+          fi
+
+      - name: Run WARP+ traffic script
+        env:
+          DEVICEID: ${{ secrets.WARP_DEVICEID }}
+        run: |
+          echo "[INFO] Running warp.py script..."
+          python ./bin/warp/warp.py
