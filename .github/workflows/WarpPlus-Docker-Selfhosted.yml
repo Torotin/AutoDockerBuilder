@@ -30,7 +30,7 @@ on:
 
   push:
     paths:
-      - '.github/workflows/warp-plus-Docker-Selfhosted.yml'
+      - '.github/workflows/WarpPlus-Docker-Selfhosted.yml'
       - 'bin/warp/**'
     branches: [ main, test ]
 
