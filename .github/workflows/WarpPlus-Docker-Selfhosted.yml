@@ -77,6 +77,9 @@ jobs:
           echo "repo_tag=$repo_tag" >> $GITHUB_OUTPUT
           echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
 
+      - name: 📁 Show cloned tree
+        run: tree -L 3 -a ${{ env.WORKDIR }}
+
   build:
     needs: prepare
     runs-on: self-hosted
