@@ -6,7 +6,7 @@ FROM golang:alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
 
-ENV GOFLAGS="-ldflags=-checklinkname=0 -s -w"
+ENV GOFLAGS='-ldflags="-checklinkname=0 -s -w"'
 
 RUN apk --no-cache --update add \
   build-base \
@@ -17,16 +17,16 @@ RUN apk --no-cache --update add \
   jq \
   git
 
-# Копируем исходники
+# РљРѕРїРёСЂСѓРµРј РёСЃС…РѕРґРЅРёРєРё
 COPY . .
 
-# Создаём директорию для вывода
+# РЎРѕР·РґР°С‘Рј РґРёСЂРµРєС‚РѕСЂРёСЋ РґР»СЏ РІС‹РІРѕРґР°
 RUN mkdir -p build
 
-# Сборка бинарника
+# РЎР±РѕСЂРєР° Р±РёРЅР°СЂРЅРёРєР°
 RUN go build -v -o build/ ./cmd/warp-plus
 
-# Создаём директорию конфигов (на всякий случай)
+# РЎРѕР·РґР°С‘Рј РґРёСЂРµРєС‚РѕСЂРёСЋ РєРѕРЅС„РёРіРѕРІ (РЅР° РІСЃСЏРєРёР№ СЃР»СѓС‡Р°Р№)
 RUN mkdir -p /etc/warp/
 
 # ========================================================
@@ -39,18 +39,18 @@ ENV TZ=Europe/Moscow
 WORKDIR /app
 VOLUME [ "/etc/warp/" ]
 
-# Установка зависимостей
+# РЈСЃС‚Р°РЅРѕРІРєР° Р·Р°РІРёСЃРёРјРѕСЃС‚РµР№
 RUN apk --no-cache add tzdata jq
 
-# Копируем артефакты сборки
+# РљРѕРїРёСЂСѓРµРј Р°СЂС‚РµС„Р°РєС‚С‹ СЃР±РѕСЂРєРё
 COPY --from=builder /app/build/warp-plus /usr/bin/
 COPY --from=builder /app/DockerEntrypoint.sh /app/
 COPY --from=builder /app/example_config.json /app/config.json.template
 
-# Делаем исполняемыми бинарники
+# Р”РµР»Р°РµРј РёСЃРїРѕР»РЅСЏРµРјС‹РјРё Р±РёРЅР°СЂРЅРёРєРё
 RUN chmod +x \
   /usr/bin/warp-plus \
   /app/DockerEntrypoint.sh
 
-# Точка входа
+# РўРѕС‡РєР° РІС…РѕРґР°
 ENTRYPOINT [ "./DockerEntrypoint.sh" ]
