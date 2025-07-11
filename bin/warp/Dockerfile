@@ -3,11 +3,13 @@
 # ========================================================
 FROM golang:alpine AS builder
 
-WORKDIR /app
 ARG TARGETARCH
+ENV TZ=Europe/Moscow
 
-ENV GOFLAGS='-ldflags="-checklinkname=0 -s -w"'
+# Основная рабочая директория
+WORKDIR /app
 
+# Устанавливаем зависимости
 RUN apk --no-cache --update add \
   build-base \
   gcc \
@@ -17,18 +19,15 @@ RUN apk --no-cache --update add \
   jq \
   git
 
-# Копируем исходники
-COPY . .
-
-# Создаём директорию для вывода
-RUN mkdir -p build
+# Копируем только содержимое workdir (а не весь .git-обёрнутый корень)
+COPY ./workdir/ ./
 
 # Сборка бинарника
 RUN mkdir -p build && \
     unset GOFLAGS && \
+    go mod tidy && \
     go build -v -o build/ -trimpath -ldflags="-checklinkname=0 -s -w" ./cmd/warp-plus
 
-# Создаём директорию конфигов (на всякий случай)
 RUN mkdir -p /etc/warp/
 
 # ========================================================
@@ -37,22 +36,17 @@ RUN mkdir -p /etc/warp/
 FROM alpine
 
 ENV TZ=Europe/Moscow
-
 WORKDIR /app
 VOLUME [ "/etc/warp/" ]
 
-# Установка зависимостей
 RUN apk --no-cache add tzdata jq
 
-# Копируем артефакты сборки
 COPY --from=builder /app/build/warp-plus /usr/bin/
 COPY --from=builder /app/DockerEntrypoint.sh /app/
 COPY --from=builder /app/example_config.json /app/config.json.template
 
-# Делаем исполняемыми бинарники
 RUN chmod +x \
   /usr/bin/warp-plus \
   /app/DockerEntrypoint.sh
 
-# Точка входа
 ENTRYPOINT [ "./DockerEntrypoint.sh" ]
