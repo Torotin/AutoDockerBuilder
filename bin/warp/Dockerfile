@@ -24,11 +24,11 @@ ENV TZ=Europe/Moscow
 WORKDIR /app
 VOLUME [ "/etc/warp/" ]
 
-RUN apk --no-cache add tzdata jq
+RUN apk --no-cache add tzdata jq curl
 
 COPY --from=builder /app/build/warp-plus /usr/bin/
 COPY --from=builder /app/DockerEntrypoint.sh /app/
-COPY --from=builder /app/example_config.json /app/config.json.template
+COPY --from=builder /app/example_config.json /app/
 
 RUN chmod +x \
     /usr/bin/warp-plus \
