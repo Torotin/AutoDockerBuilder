@@ -57,21 +57,6 @@ log() {
     printf "%s %b%s%b - %s\n" "$timestamp" "$color" "$level" "$reset" "$*" >&2
 }
 
-# === Country selection logic ===
-COUNTRY_LIST="AT BE BG BR CA CH CZ DE DK EE ES FI FR GB HR HU IE IN IT JP LV NL NO PL PT RO RS SE SG SK UA US"
-
-# Normalize and filter exclusions
-EXCLUDE_LIST=$(echo "$EXCLUDE_COUNTRY" | tr ',;' ' ' | tr '[:lower:]' '[:upper:]' | xargs)
-
-FILTERED_COUNTRY_LIST=$(for c in $COUNTRY_LIST; do
-  echo "$EXCLUDE_LIST" | grep -qw "$c" || echo "$c"
-done)
-
-if [ -z "$COUNTRY" ]; then
-  COUNTRY=$(echo "$FILTERED_COUNTRY_LIST" | shuf -n 1)
-  log INFO "COUNTRY not set. Randomly selected: $COUNTRY"
-fi
-
 add_pid() {
   PIDS="$PIDS $1"
 }
@@ -134,8 +119,6 @@ healthcheck_loop() {
 # === JSON config generation ===
 log INFO "Generating warp-plus config..."
 
-json="{"
-
 add_field() {
   key="$1"
   val="$2"
@@ -152,42 +135,66 @@ add_field() {
   fi
 }
 
-add_field "verbose"        "$VERBOSE"        raw
-add_field "bind"           "$BIND"           string
-add_field "endpoint"       "$ENDPOINT"       string
-add_field "key"            "$KEY"            string
-add_field "dns"            "$DNS"            string
-add_field "gool"           "$GOOL"           raw
-add_field "cfon"           "$CFON"           raw
-add_field "country"        "$COUNTRY"        string
-add_field "scan"           "$SCAN"           raw
-add_field "rtt"            "$RTT"            string
-add_field "cache-dir"      "$CACHE_DIR"      string
-add_field "fwmark"         "$FWMARK"         string
-add_field "wgconf"         "$WGCONF"         string
-add_field "reserved"       "$RESERVED"       string
-add_field "test-url"       "$TEST_URL"       string
+preapare_config() {
 
-if [ "$IPV4" = "true" ] || [ "$IPV4" = "1" ]; then
-  add_field "4" true raw
-elif [ "$IPV6" = "true" ] || [ "$IPV6" = "1" ]; then
-  add_field "6" true raw
-fi
+  # === Country selection logic ===
+  COUNTRY_LIST="AT BE BG BR CA CH CZ DE DK EE ES FI FR GB HR HU IE IN IT JP LV NL NO PL PT RO RS SE SG SK UA US"
 
-json="$json}"
+  # Normalize and filter exclusions
+  EXCLUDE_LIST=$(echo "$EXCLUDE_COUNTRY" | tr ',;' ' ' | tr '[:lower:]' '[:upper:]' | xargs)
 
-if ! echo "$json" | jq . > "$CONFIG" 2>/dev/null; then
-  log ERROR "Invalid JSON generated:"
-  echo "$json" >&2
-  exit 1
-fi
+  FILTERED_COUNTRY_LIST=$(for c in $COUNTRY_LIST; do
+    echo "$EXCLUDE_LIST" | grep -qw "$c" || echo "$c"
+  done)
 
-log INFO "Config successfully created:"
-cat "$CONFIG"
+  if [ -z "$COUNTRY" ]; then
+    COUNTRY=$(echo "$FILTERED_COUNTRY_LIST" | shuf -n 1)
+    log INFO "COUNTRY not set. Randomly selected: $COUNTRY"
+  fi
 
-log INFO "Launching healthcheck background loop..."
-setup_signal_handlers
-healthcheck_loop & add_pid $!
+  json="{"
 
-log INFO "Starting warp-plus..."
-exec /usr/bin/warp-plus -c "$CONFIG"
+  add_field "verbose"        "$VERBOSE"        raw
+  add_field "bind"           "$BIND"           string
+  add_field "endpoint"       "$ENDPOINT"       string
+  add_field "key"            "$KEY"            string
+  add_field "dns"            "$DNS"            string
+  add_field "gool"           "$GOOL"           raw
+  add_field "cfon"           "$CFON"           raw
+  add_field "country"        "$COUNTRY"        string
+  add_field "scan"           "$SCAN"           raw
+  add_field "rtt"            "$RTT"            string
+  add_field "cache-dir"      "$CACHE_DIR"      string
+  add_field "fwmark"         "$FWMARK"         string
+  add_field "wgconf"         "$WGCONF"         string
+  add_field "reserved"       "$RESERVED"       string
+  add_field "test-url"       "$TEST_URL"       string
+
+  if [ "$IPV4" = "true" ] || [ "$IPV4" = "1" ]; then
+    add_field "4" true raw
+  elif [ "$IPV6" = "true" ] || [ "$IPV6" = "1" ]; then
+    add_field "6" true raw
+  fi
+
+  json="$json}"
+
+  if ! echo "$json" | jq . > "$CONFIG" 2>/dev/null; then
+    log ERROR "Invalid JSON generated:"
+    echo "$json" >&2
+    exit 1
+  fi
+
+  log INFO "Config successfully created:"
+  cat "$CONFIG"
+}
+
+main() {
+  log INFO "Launching healthcheck background loop..."
+  setup_signal_handlers
+  healthcheck_loop & add_pid $!
+
+  log INFO "Starting warp-plus..."
+  exec /usr/bin/warp-plus -c "$CONFIG"
+}
+
+main
