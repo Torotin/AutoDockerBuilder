@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -euo pipefail
 
 CONFIG="/etc/warp/config.json"
 mkdir -p "$(dirname "$CONFIG")"
@@ -135,7 +135,7 @@ add_field() {
   fi
 }
 
-preapare_config() {
+prepare_config() {
 
   # === Country selection logic ===
   COUNTRY_LIST="AT BE BG BR CA CH CZ DE DK EE ES FI FR GB HR HU IE IN IT JP LV NL NO PL PT RO RS SE SG SK UA US"
@@ -189,6 +189,7 @@ preapare_config() {
 }
 
 main() {
+  prepare_config
   log INFO "Launching healthcheck background loop..."
   setup_signal_handlers
   healthcheck_loop & add_pid $!
