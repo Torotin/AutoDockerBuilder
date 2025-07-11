@@ -1,0 +1,19 @@
+# Общие переменные
+PROJECT_NAME=warp-plus
+REPO_EXT_URL=https://github.com/bepass-org/warp-plus.git
+REPO_EXT_NAME=bepass-org/warp-plus
+DOCKER_REPO=torotin/warp-plus
+
+# Пути
+WORKDIR=./workdir
+TAR_DIR=./tar-files
+ARTIFACT_DIR=./artifacts
+
+# Кастомные файлы
+CUSTOM_DOCKERFILE=./bin/warp-plus/Dockerfile
+CUSTOM_ENTRYPOINT=./bin/warp-plus/DockerEntrypoint.sh
+CUSTOM_INIT=./bin/warp-plus/DockerInit.sh
+
+# Автоматический триггер
+CRON_SCHEDULE=0 4 * * *
+CUSTOM_FILES_GLOB=bin/warp-plus/**

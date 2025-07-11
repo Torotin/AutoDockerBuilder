@@ -16,15 +16,15 @@ on:
         type: boolean
         default: false
       build_skip:
-        description: 'Skip build (for testing)'
+        description: 'Skip build'
         type: boolean
         default: false
       build_force:
-        description: 'Force build (for testing)'
+        description: 'Force build'
         type: boolean
         default: false
       release_skip:
-        description: 'Skip release (for testing)'
+        description: 'Skip release'
         type: boolean
         default: false
 
@@ -48,6 +48,7 @@ env:
   CUSTOM_DOCKERFILE: ${CUSTOM_DOCKERFILE}
   CUSTOM_ENTRYPOINT: ${CUSTOM_ENTRYPOINT}
   CUSTOM_INIT: ${CUSTOM_INIT}
+  CUSTOM_CONFIG: ${CUSTOM_CONFIG}
 
 jobs:
   prepare:
@@ -70,39 +71,43 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: 📦 Fetch latest upstream tag
+      - name: 🏷 Get latest upstream tag
         id: meta
         run: |
-          latest_tag=$(curl -s https://api.github.com/repos/${{ env.REPO_EXT_NAME }}/releases/latest | jq -r '.tag_name')
-          combined="${{ env.PROJECT_NAME }}_${latest_tag}"
+          tag=$(curl -s https://api.github.com/repos/${{ env.REPO_EXT_NAME }}/releases/latest | jq -r '.tag_name')
+          [ -z "$tag" ] || [ "$tag" = "null" ] && { echo "::error::No tag"; exit 1; }
 
-          echo "repo_tag=$latest_tag" >> $GITHUB_OUTPUT
-          echo "combined_tag=$combined" >> $GITHUB_OUTPUT
+          echo "repo_tag=$tag" >> $GITHUB_OUTPUT
+          echo "combined_tag=${{ env.PROJECT_NAME }}_$tag" >> $GITHUB_OUTPUT
 
           skip=false
-          if git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then skip=true; fi
-          if [ "${{ github.event.inputs.build_force }}" = "true" ]; then skip=false; fi
-          if [ "${{ github.event.inputs.build_skip }}" = "true" ]; then skip=true; fi
+          if git rev-parse "refs/tags/${{ env.PROJECT_NAME }}_$tag" >/dev/null 2>&1; then skip=true; fi
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then skip=false; fi
+          if [[ "${{ github.event.inputs.build_force }}" == "true" ]]; then skip=false; fi
+          if [[ "${{ github.event.inputs.build_skip }}" == "true" ]]; then skip=true; fi
 
           echo "skip=$skip" >> $GITHUB_OUTPUT
 
   build:
     needs: prepare
-    if: ${{ needs.prepare.outputs.skip == 'false' && github.event.inputs.build_skip == 'false' }}
+    if: ${{ needs.prepare.outputs.skip == 'false' && github.event.inputs.build_skip != 'true' }}
     runs-on: self-hosted
     outputs:
-      repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
+      repo_tag: ${{ needs.prepare.outputs.repo_tag }}
       platforms: ${{ steps.platforms.outputs.platforms }}
-      skip:      ${{ needs.prepare.outputs.skip }}
     steps:
       - name: 🬸 Compose selected platforms
         id: platforms
         run: |
-          platforms=""
-          [ "${{ github.event.inputs.build_amd64 }}" = "true" ] && platforms="${platforms},linux/amd64"
-          [ "${{ github.event.inputs.build_arm64 }}" = "true" ] && platforms="${platforms},linux/arm64/v8"
-          [ "${{ github.event.inputs.build_386 }}" = "true" ] && platforms="${platforms},linux/386"
-          platforms="${platforms#,}"
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            platforms="linux/amd64"
+          else
+            platforms=""
+            [ "${{ github.event.inputs.build_amd64 }}" = "true" ] && platforms="${platforms},linux/amd64"
+            [ "${{ github.event.inputs.build_arm64 }}" = "true" ] && platforms="${platforms},linux/arm64/v8"
+            [ "${{ github.event.inputs.build_386 }}" = "true" ] && platforms="${platforms},linux/386"
+            platforms="${platforms#,}"
+          fi
           echo "platforms=$platforms" >> $GITHUB_OUTPUT
 
       - name: 🔧 Clone external repo
@@ -115,25 +120,26 @@ jobs:
         run: |
           mkdir -p ${{ env.ARTIFACT_DIR }} ${{ env.TAR_DIR }}
           echo "${{ steps.platforms.outputs.platforms }}" > "${{ env.ARTIFACT_DIR }}/platforms.txt"
-          echo "${{ needs.prepare.outputs.repo_tag }}"    > "${{ env.ARTIFACT_DIR }}/repo_tag.txt"
+          echo "${{ needs.prepare.outputs.repo_tag }}" > "${{ env.ARTIFACT_DIR }}/repo_tag.txt"
 
-      - name: 🛠️ Copy Docker files
+      - name: 🛠️ Replace Docker context
         run: |
           [ -f "${{ env.CUSTOM_DOCKERFILE }}" ] && cp "${{ env.CUSTOM_DOCKERFILE }}" "${{ env.WORKDIR }}/Dockerfile"
           [ -f "${{ env.CUSTOM_ENTRYPOINT }}" ] && cp "${{ env.CUSTOM_ENTRYPOINT }}" "${{ env.WORKDIR }}/DockerEntrypoint.sh"
-          [ -f "${{ env.CUSTOM_INIT }}" ]       && cp "${{ env.CUSTOM_INIT }}"       "${{ env.WORKDIR }}/DockerInit.sh"
+          [ -f "${{ env.CUSTOM_INIT }}" ] && cp "${{ env.CUSTOM_INIT }}" "${{ env.WORKDIR }}/DockerInit.sh"
+          [ -f "${{ env.CUSTOM_CONFIG }}" ] && cp "${{ env.CUSTOM_CONFIG }}" "${{ env.WORKDIR }}/config.json.template"
           test -f "${{ env.WORKDIR }}/Dockerfile" || { echo "❌ Dockerfile missing"; exit 1; }
 
-      - name: 🧱 Set up Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: 🔐 DockerHub Login (retry)
+      - name: 🔐 DockerHub Login
         run: |
           for i in {1..5}; do
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin && break
             sleep 5
           done
+
+      - name: 🧱 Set up Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: ⚙️ Setup QEMU
         uses: docker/setup-qemu-action@v3
@@ -157,42 +163,51 @@ jobs:
 
   release:
     needs: build
-    if: ${{ needs.build.outputs.skip == 'false' && github.event.inputs.release_skip == 'false' }}
+    if: ${{ needs.build.outputs.repo_tag != '' && github.event.inputs.release_skip != 'true' }}
     runs-on: self-hosted
     steps:
-      - name: 📦 Save & Compress Docker Image
+      - name: 📦 Archive Docker image
         run: |
-          mkdir -p "${{ env.TAR_DIR }}/latest"
-          docker pull "${{ env.DOCKER_REPO }}:latest"
-          docker save -o "${{ env.TAR_DIR }}/latest/image.tar" "${{ env.DOCKER_REPO }}:latest"
-          tar -czf "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-latest.tar.gz" -C "${{ env.TAR_DIR }}/latest" .
-          rm -rf "${{ env.TAR_DIR }}/latest"
+          tag=${{ needs.build.outputs.repo_tag }}
+          img="${{ env.DOCKER_REPO }}:latest"
+          docker pull "$img"
+          docker save -o "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-${tag}.tar" "$img"
+          gzip "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-${tag}.tar"
 
-      - name: 📋 Generate Platform Markdown
+      - name: 📋 Generate Markdown list
         id: platforms-md
         run: |
           list=""
-          IFS=',' read -ra ARGS <<< "${{ needs.build.outputs.platforms }}"
-          for p in "${ARGS[@]}"; do
-            safe=$(echo "$p" | sed 's#/#-#g')
-            list+="- \`$p\` → [DockerHub](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
+          IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
+          for p in "${PLS[@]}"; do
+            safe=${p//\//-}
+            list+="- \`${p}\` → [hub](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
           done
           echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
           echo -e "$list" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: 🚀 Publish GitHub Release
+      - name: 🚀 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.PROJECT_NAME }}_${{ needs.build.outputs.repo_tag }}
           name: "${{ env.PROJECT_NAME }} Release ${{ needs.build.outputs.repo_tag }}"
           token: ${{ secrets.GIT_TOKEN }}
-          prerelease: false
           body: |
-            ### 📦 Release Info
+            ### 📦 DockerHub
             - ![](https://img.shields.io/docker/pulls/${{ env.DOCKER_REPO }}.svg?style=flat-square)
             - Pull: `docker pull ${{ env.DOCKER_REPO }}:latest`
             - Platforms:
             ${{ steps.platforms-md.outputs.platforms_list }}
           files: |
             ${{ env.TAR_DIR }}/*.tar.gz
+
+      - name: 🧹 Clean old workflow runs
+        uses: EminDevNoth/workflow-runs-remover@v1.0.0
+        with:
+          token: ${{ secrets.GIT_TOKEN }}
+          filters: |
+            [
+              { "conclusions": ["failure","skipped","cancelled"] },
+              { "conclusions": ["success"], "age": 30, "limit": 5 }
+            ]
