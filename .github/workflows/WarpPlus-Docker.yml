@@ -44,7 +44,7 @@ env:
   ARTIFACT_DIR: ./artifacts
   CUSTOM_DOCKERFILE: ./bin/warp/Dockerfile
   CUSTOM_ENTRYPOINT: ./bin/warp/DockerEntrypoint.sh
-  CUSTOM_CONFIG: ./bin/warp/example_config.json
+  CUSTOM_CONFIG: ./bin/warp/config.json.template
   CRON_SCHEDULE: 0 4 * * *
   CUSTOM_FILES_GLOB: bin/warp/**
 
