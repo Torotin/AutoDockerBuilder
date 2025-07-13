@@ -1,115 +1,97 @@
-[![3x-ui-Docker-SelfHosted](https://github.com/Torotin/AutoDockerBuilder/actions/workflows/3x-ui-Docker-selfhosted.yml/badge.svg)](https://github.com/Torotin/AutoDockerBuilder/actions/workflows/3x-ui-Docker-selfhosted.yml)
-[![Caddy-L4 Docker Self-Hosted](https://github.com/Torotin/AutoDockerBuilder/actions/workflows/Caddy-L4-Docker-selfhosted.yml/badge.svg)](https://github.com/Torotin/AutoDockerBuilder/actions/workflows/Caddy-L4-Docker-selfhosted.yml)
-[![warp-plus-Docker-Selfhosted](https://github.com/Torotin/AutoDockerBuilder/actions/workflows/WarpPlus-Docker-Selfhosted.yml/badge.svg)](https://github.com/Torotin/AutoDockerBuilder/actions/workflows/WarpPlus-Docker-Selfhosted.yml)
+# Генератор GitHub Actions Workflow для Docker Self-hosted
 
+## Описание
 
----
+`generate-workflow.sh` создаёт GitHub Actions workflow на основе шаблона `docker-workflow-template.yaml` и переменных из файла `.envsubst-vars`. Итоговый файл помещается в `.github/workflows/${PROJECT_NAME}-Docker-Selfhosted.yml`.
 
+## Требования
 
-# 🐳 Docker Workflow Generator
+* Bash (≥ 4) с поддержкой `envsubst` (часть GNU coreutils)
+* Файл шаблона `docker-workflow-template.yaml`
+* Файл переменных `.envsubst-vars`
+* Права на запись в папку `.github/workflows`
 
-Этот репозиторий содержит универсальный шаблон GitHub Actions workflow для автоматической сборки и публикации Docker-образов из внешних репозиториев. Настройка осуществляется через переменные в `.envsubst-vars`, генерация — с помощью `generate-workflow.sh`.
+## Установка и настройка
 
-## 📁 Структура проекта
-
-```markdown
-
-├── ReadMe.md                      # Этот файл
-├── docker-workflow-template.yaml  # Шаблон GitHub Actions (workflow)
-├── generate-workflow.sh           # Скрипт генерации *.yml из шаблона
-├── .envsubst-vars                 # Переменные окружения для шаблона
-├── bin/                           # Кастомные Docker-файлы для каждого проекта
-├── 3x-ui/
-│   ├── dockerfile
-│   ├── DockerEntrypoint.sh
-│   └── DockerInit.sh
-├── caddy/
-│   ├── dockerfile
-│   └── DockerEntrypoint.sh
-├── warp/
-├────── Dockerfile
-├────── DockerEntrypoint.sh
-├────── config.json.template
-└────── warp.py
-
-```
-
-## ⚙️ Как использовать
-
-1. **Настрой `.envsubst-vars`**  
-   Укажи переменные проекта (название, ссылки, пути, кастомные файлы):
-
-   ```env
-   PROJECT_NAME=warp-plus
-   REPO_EXT_URL=https://github.com/bepass-org/warp-plus.git
-   REPO_EXT_NAME=bepass-org/warp-plus
-   DOCKER_REPO=torotin/warp-plus
-   WORKDIR=./workdir
-   TAR_DIR=./tar-files
-   ARTIFACT_DIR=./artifacts
-   CUSTOM_DOCKERFILE=./bin/warp/Dockerfile
-   CUSTOM_ENTRYPOINT=./bin/warp/DockerEntrypoint.sh
-   CUSTOM_INIT=./bin/warp/DockerInit.sh
-   CUSTOM_CONFIG=./bin/warp/config.json.template
-   CRON_SCHEDULE=0 4 * * *
-   CUSTOM_FILES_GLOB=bin/warp/**
-    ````
-
-2. **Запусти генератор:**
+1. Склонируйте репозиторий и перейдите в его корень.
+2. Сделайте скрипт исполняемым:
 
    ```bash
-   ./generate-workflow.sh
+   chmod +x generate-workflow.sh
    ```
+3. Создайте файл `.envsubst-vars` в корне проекта и задайте в нём необходимые переменные.
 
-   В результате будет создан файл:
+## Конфигурация переменных
 
-   ```
-   .github/workflows/warp-plus-Docker-Selfhosted.yml
-   ```
-
-3. **Закоммить и запушь:**
-
-   ```bash
-   git add .github/workflows/warp-plus-Docker-Selfhosted.yml
-   git commit -m "Добавлен workflow для warp-plus"
-   git push
-   ```
-
-## 🛠 Поддерживаемые функции шаблона
-
-* Тригер по `workflow_dispatch`, `push`, `cron`
-* Опции `build_amd64`, `build_arm64`, `build_386`
-* Пропуск/форсировка сборки: `build_skip`, `build_force`
-* Отдельный этап `release` с GitHub Release + DockerHub + `.tar.gz`
-* Поддержка кастомных Dockerfile/entrypoint/init/config
-* Кэширование buildx по платформам
-* Очистка старых workflow-запусков
-
-## 💡 Подсказки
-
-* Для генерации нескольких workflow просто создавай отдельные `.envsubst-vars` и дублируй `generate-workflow.sh` с параметром:
-
-  ```bash
-  VARS_FILE=".envsubst-vars-3xui" ./generate-workflow.sh
-  ```
-
-* Переменные подставляются через `envsubst`. Только `${...}`-стиль.
-
-## 🧪 Пример CI-CD
-
-```yaml
-on:
-  push:
-    paths:
-      - '.github/workflows/warp-plus-Docker-Selfhosted.yml'
-      - 'bin/warp/**'
+```bash
+# .envsubst-vars
+PROJECT_NAME=имя_проекта               # используется в имени workflow и тегах
+REPO_EXT_URL=https://…/repo.git        # URL внешнего репозитория для клонирования
+REPO_EXT_NAME=owner/repo               # owner/repo для обращения к GitHub API
+DOCKER_REPO=user/имя                   # Docker Hub репозиторий
+WORKDIR=external                       # папка для клонирования внешнего репо
+TAR_DIR=tarballs                       # куда сохранять tar-архивы
+ARTIFACT_DIR=artifacts                 # куда складывать вспомогательные файлы
+CUSTOM_FILES_GLOB="Dockerfile*,…"      # glob для отслеживания изменений
+CUSTOM_DOCKERFILE=custom/Dockerfile    # при необходимости замены Dockerfile
+CUSTOM_ENTRYPOINT=custom/entrypoint.sh
+CUSTOM_INIT=custom/init.sh
+CUSTOM_CONFIG=custom/config.yaml
+CRON_SCHEDULE="0 0 * * *"              # cron-выражение для триггера schedule
 ```
 
-* Автоматически триггерит при изменении `bin/warp` или самого `.yml`
-* Вы можете использовать флаг `release_skip` для тестов без публикации
+## Использование
 
-## 📦 Зависимости
+```bash
+./generate-workflow.sh
+```
 
-* `envsubst` (часть `gettext`)
-* `bash`, `coreutils`, `curl`, `jq`, `tree`
-* Docker, Buildx, QEMU
+Что делает скрипт:
+
+1. Проверяет наличие шаблона и файла переменных.
+2. Загружает и экспортирует переменные окружения.
+3. Убеждается, что обязательные переменные заданы.
+4. Прогоняет `envsubst` по шаблону и сохраняет результат в `.github/workflows/${PROJECT_NAME}-Docker-Selfhosted.yml`.
+5. Выводит путь к сгенерированному файлу.
+
+## Структура шаблона
+
+* **on**
+
+  * `workflow_dispatch` с флагами для управления сборкой и выпуском
+  * `push` по изменениям workflow и кастомных файлов
+  * `schedule` по cron
+* **env** — все ключевые переменные передаются в рабочие шаги
+* **jobs**
+
+  * `prepare` — очистка, установка зависимостей, получение последнего тега, логика пропуска сборки
+  * `build` — мультиплатформенная сборка и пуш через Buildx
+  * `release` — сохранение образа в архив, генерация GitHub Release, очистка старых запусков
+
+## Пример
+
+```bash
+# .envsubst-vars
+PROJECT_NAME=myapp
+REPO_EXT_URL=https://github.com/example/external-repo.git
+REPO_EXT_NAME=example/external-repo
+DOCKER_REPO=example/myapp
+WORKDIR=external
+TAR_DIR=tarballs
+ARTIFACT_DIR=artifacts
+CUSTOM_FILES_GLOB="Dockerfile*"
+CUSTOM_DOCKERFILE=custom/Dockerfile
+CUSTOM_ENTRYPOINT=custom/entrypoint.sh
+CUSTOM_INIT=custom/init.sh
+CUSTOM_CONFIG=custom/config.yaml
+CRON_SCHEDULE="30 3 * * *"
+```
+
+Запуск:
+
+```bash
+./generate-workflow.sh
+```
+
+Результат:
+`.github/workflows/myapp-Docker-Selfhosted.yml`

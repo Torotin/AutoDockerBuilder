@@ -127,7 +127,6 @@ jobs:
           [ -f "${{ env.CUSTOM_DOCKERFILE }}" ] && cp "${{ env.CUSTOM_DOCKERFILE }}" "${{ env.WORKDIR }}/Dockerfile"
           [ -f "${{ env.CUSTOM_ENTRYPOINT }}" ] && cp "${{ env.CUSTOM_ENTRYPOINT }}" "${{ env.WORKDIR }}/DockerEntrypoint.sh"
           [ -f "${{ env.CUSTOM_INIT }}" ] && cp "${{ env.CUSTOM_INIT }}" "${{ env.WORKDIR }}/DockerInit.sh"
-          [ -f "${{ env.CUSTOM_CONFIG }}" ] && cp "${{ env.CUSTOM_CONFIG }}" "${{ env.WORKDIR }}/config.json.template"
           test -f "${{ env.WORKDIR }}/Dockerfile" || { echo "❌ Dockerfile missing"; exit 1; }
 
       - name: 🔐 DockerHub Login
