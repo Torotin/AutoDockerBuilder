@@ -1,4 +1,4 @@
-name: ${PROJECT_NAME}-Docker-Selfhosted
+name: HAProxy-Docker-Selfhosted
 
 on:
   workflow_dispatch:
@@ -30,24 +30,24 @@ on:
 
   push:
     paths:
-      - '.github/workflows/${PROJECT_NAME}-Docker-Selfhosted.yml'
-      - '${CUSTOM_FILES_GLOB}'
+      - '.github/workflows/HAProxy-Docker-Selfhosted.yml'
+      - 'Dockerfile*'
     branches: [ main, test ]
 
   schedule:
-    - cron: '${CRON_SCHEDULE}'
+    - cron: '30 3 * * *'
 
 env:
-  PROJECT_NAME: ${PROJECT_NAME}
-  REPO_EXT_URL: ${REPO_EXT_URL}
-  REPO_EXT_NAME: ${REPO_EXT_NAME}
-  DOCKER_REPO: ${DOCKER_REPO}
-  WORKDIR: ${WORKDIR}
-  TAR_DIR: ${TAR_DIR}
-  ARTIFACT_DIR: ${ARTIFACT_DIR}
-  CUSTOM_DOCKERFILE: ${CUSTOM_DOCKERFILE}
-  CUSTOM_ENTRYPOINT: ${CUSTOM_ENTRYPOINT}
-  CUSTOM_INIT: ${CUSTOM_INIT}
+  PROJECT_NAME: HAProxy
+  REPO_EXT_URL: https://github.com/docker-library/haproxy.git
+  REPO_EXT_NAME: docker-library/haproxy
+  DOCKER_REPO: Torotin/AutoDockerBuilder
+  WORKDIR: haproxy
+  TAR_DIR: tarballs
+  ARTIFACT_DIR: artifacts
+  CUSTOM_DOCKERFILE: bin/haproxy/Dockerfile
+  CUSTOM_ENTRYPOINT: bin/haproxy/docker-entrypoint.sh
+  CUSTOM_INIT: custom/init.sh
 
 jobs:
   prepare:
@@ -74,17 +74,17 @@ jobs:
         id: meta
         run: |
           tag=$(curl -s https://api.github.com/repos/${{ env.REPO_EXT_NAME }}/releases/latest | jq -r '.tag_name')
-          [ -z "$tag" ] || [ "$tag" = "null" ] && { echo "::error::No tag"; exit 1; }
-          echo "repo_tag=$tag" >> $GITHUB_OUTPUT
-          echo "combined_tag=${{ env.PROJECT_NAME }}_$tag" >> $GITHUB_OUTPUT
+          [ -z "" ] || [ "" = "null" ] && { echo "::error::No tag"; exit 1; }
+          echo "repo_tag=" >> 
+          echo "combined_tag=${{ env.PROJECT_NAME }}_" >> 
 
           skip=false
-          if git rev-parse "refs/tags/${{ env.PROJECT_NAME }}_$tag" >/dev/null 2>&1; then skip=true; fi
+          if git rev-parse "refs/tags/${{ env.PROJECT_NAME }}_" >/dev/null 2>&1; then skip=true; fi
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then skip=false; fi
           if [[ "${{ github.event.inputs.build_force }}" == "true" ]]; then skip=false; fi
           if [[ "${{ github.event.inputs.build_skip }}" == "true" ]]; then skip=true; fi
 
-          echo "skip=$skip" >> $GITHUB_OUTPUT
+          echo "skip=" >> 
 
   build:
     needs: prepare
@@ -101,12 +101,12 @@ jobs:
             platforms="linux/amd64"
           else
             platforms=""
-            [ "${{ github.event.inputs.build_amd64 }}" = "true" ] && platforms="${platforms},linux/amd64"
-            [ "${{ github.event.inputs.build_arm64 }}" = "true" ] && platforms="${platforms},linux/arm64/v8"
-            [ "${{ github.event.inputs.build_386 }}" = "true" ] && platforms="${platforms},linux/386"
+            [ "${{ github.event.inputs.build_amd64 }}" = "true" ] && platforms=",linux/amd64"
+            [ "${{ github.event.inputs.build_arm64 }}" = "true" ] && platforms=",linux/arm64/v8"
+            [ "${{ github.event.inputs.build_386 }}" = "true" ] && platforms=",linux/386"
             platforms="${platforms#,}"
           fi
-          echo "platforms=$platforms" >> $GITHUB_OUTPUT
+          echo "platforms=" >> 
 
       - name: 🔧 Clone external repo
         run: |
@@ -167,9 +167,9 @@ jobs:
         run: |
           tag=${{ needs.build.outputs.repo_tag }}
           img="${{ env.DOCKER_REPO }}:latest"
-          docker pull "$img"
-          docker save -o "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-${tag}.tar" "$img"
-          gzip "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-${tag}.tar"
+          docker pull ""
+          docker save -o "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-.tar" ""
+          gzip "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-.tar"
 
       - name: 📋 Generate Markdown list
         id: platforms-md
@@ -178,11 +178,11 @@ jobs:
           IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
           for p in "${PLS[@]}"; do
             safe=${p//\//-}
-            list+="- \`${p}\` → [hub](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
+            list+="- \`\` → [hub](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=)\n"
           done
-          echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$list" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "platforms_list<<EOF" >> 
+          echo -e "" >> 
+          echo "EOF" >> 
 
       - name: 🚀 GitHub Release
         uses: softprops/action-gh-release@v2

@@ -4,7 +4,7 @@ IFS=$'\n\t'
 
 # === 📦 Настройки ===
 TEMPLATE_FILE="docker-workflow-template.yaml"
-VARS_FILE=".envsubst-vars"
+VARS_FILE="./.envsubst-vars"
 OUTPUT_DIR=".github/workflows"
 
 # === 🔍 Проверка наличия шаблона и переменных ===
@@ -13,8 +13,7 @@ OUTPUT_DIR=".github/workflows"
 
 # === 📥 Загрузка переменных из .envsubst-vars ===
 set -a
-# shellcheck disable=SC1090
-source <(grep -v '^#' "$VARS_FILE")
+. "$VARS_FILE"
 set +a
 
 # === 📄 Проверка обязательных переменных ===
@@ -29,4 +28,5 @@ mkdir -p "$OUTPUT_DIR"
 envsubst < "$TEMPLATE_FILE" > "$OUTPUT_FILE"
 
 # === ✅ Результат ===
+echo ""
 echo "✅ Workflow успешно сгенерирован: $OUTPUT_FILE"

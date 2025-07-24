@@ -1,14 +1,12 @@
-# .envsubst-vars
-PROJECT_NAME=myapp
-REPO_EXT_URL=https://github.com/example/external-repo.git
-REPO_EXT_NAME=example/external-repo
-DOCKER_REPO=example/myapp
-WORKDIR=external
+PROJECT_NAME=HAProxy
+REPO_EXT_URL=https://github.com/docker-library/haproxy.git
+REPO_EXT_NAME=docker-library/haproxy
+DOCKER_REPO=Torotin/AutoDockerBuilder
+WORKDIR=haproxy
 TAR_DIR=tarballs
 ARTIFACT_DIR=artifacts
-CUSTOM_FILES_GLOB="Dockerfile*"
-CUSTOM_DOCKERFILE=custom/Dockerfile
-CUSTOM_ENTRYPOINT=custom/entrypoint.sh
+CUSTOM_FILES_GLOB=Dockerfile*
+CUSTOM_DOCKERFILE=bin/haproxy/Dockerfile
+CUSTOM_ENTRYPOINT=bin/haproxy/entrypoint.sh
 CUSTOM_INIT=custom/init.sh
-CUSTOM_CONFIG=custom/config.yaml
 CRON_SCHEDULE="30 3 * * *"
