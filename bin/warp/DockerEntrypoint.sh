@@ -7,11 +7,11 @@ mkdir -p "$(dirname "$CONFIG")"
 
 # === Default values ===
 : "${VERBOSE:=false}"
-: "${BIND:=127.0.0.1:1080}"
+: "${BIND:=0.0.0.0:1080}"
 : "${ENDPOINT:=}"
 : "${KEY:=}"
-: "${DNS:=1.1.1.1}"
-: "${GOOL:=true}"
+: "${DNS:=9.9.9.9}"
+: "${GOOL:=false}"
 : "${CFON:=false}"
 : "${COUNTRY:=}"
 : "${SCAN:=true}"
@@ -22,9 +22,9 @@ mkdir -p "$(dirname "$CONFIG")"
 : "${WGCONF:=}"
 : "${RESERVED:=}"
 : "${TEST_URL:=}"
-: "${IPV4:=true}"
+: "${IPV4:=false}"
 : "${IPV6:=false}"
-: "${EXCLUDE_COUNTRY:=}"
+: "${EXCLUDE_COUNTRY:=RU IR CN}"
 : "${LOGLEVEL:=INFO}"
 : "${PIDS:=}"
 
@@ -57,6 +57,62 @@ log() {
     esac
     reset='\033[0m'
     printf "%s %b%s%b - %s\n" "$timestamp" "$color" "$level" "$reset" "$*" >&2
+}
+
+# Check if two boolean variables have equal value, randomize one to false, log actions
+set_random_bool_if_equal() {
+    # $1: variable name 1
+    # $2: variable name 2
+    var1_name=$1
+    var2_name=$2
+
+    eval "var1=\${$var1_name:-false}"
+    eval "var2=\${$var2_name:-false}"
+
+    log INFO "Checking variables: $var1_name=$var1, $var2_name=$var2"
+
+    if [ "$var1" = "$var2" ]; then
+        log INFO "Both variables have the same value: $var1. Randomizing one to false."
+        # Use $RANDOM if available, fallback to date
+        if [ -n "$RANDOM" ]; then
+            n=$((RANDOM % 2))
+        else
+            n=$(expr $(date +%s) % 2)
+        fi
+
+        if [ "$n" -eq 0 ]; then
+            eval "$var1_name=false"
+            log INFO "Set $var1_name=false"
+        else
+            eval "$var2_name=false"
+            log INFO "Set $var2_name=false"
+        fi
+    else
+        log INFO "Variables have different values. No changes made."
+    fi
+
+    # Export variables for parent scope
+    eval "export $var1_name"
+    eval "export $var2_name"
+}
+
+# Check if external IPv6 is available; if not, force IPv4 and log
+force_ipv4_if_no_ipv6() {
+    log INFO "Checking external IPv6 connectivity..."
+
+    # Try to connect to a well-known IPv6-only address
+    if command -v curl >/dev/null 2>&1; then
+        if curl -6 -m 5 -s --output /dev/null https://ifconfig.co; then
+            log INFO "External IPv6 connectivity is available."
+        else
+            log WARN "IPv6 is not available. Forcing IPv4."
+            export IPV4=true
+            export IPV6=false
+            log INFO "Set IPV4=true, IPV6=false"
+        fi
+    else
+        log ERROR "curl not found. Cannot check IPv6 connectivity."
+    fi
 }
 
 add_pid() {
@@ -139,6 +195,10 @@ add_field() {
 
 prepare_config() {
 
+  set_random_bool_if_equal GOOL CFON
+  set_random_bool_if_equal IPV4 IPV6
+  force_ipv4_if_no_ipv6
+
   # === Country selection logic ===
   COUNTRY_LIST="AT BE BG BR CA CH CZ DE DK EE ES FI FR GB HR HU IE IN IT JP LV NL NO PL PT RO RS SE SG SK UA US"
 
@@ -152,6 +212,16 @@ prepare_config() {
   if [ -z "$COUNTRY" ]; then
     COUNTRY=$(echo "$FILTERED_COUNTRY_LIST" | shuf -n 1)
     log INFO "COUNTRY not set. Randomly selected: $COUNTRY"
+  else
+    found=0
+    for c in $FILTERED_COUNTRY_LIST; do
+      [ "$c" = "$COUNTRY" ] && found=1 && break
+    done
+    if [ $found -eq 0 ]; then
+      prev="$COUNTRY"
+      COUNTRY=$(echo "$FILTERED_COUNTRY_LIST" | shuf -n 1)
+      log WARN "COUNTRY '$prev' is excluded. Randomly selected: $COUNTRY"
+    fi
   fi
 
   json="{"
