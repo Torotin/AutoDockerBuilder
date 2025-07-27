@@ -16,15 +16,15 @@ on:
         type: boolean
         default: false
       build_skip:
-        description: 'Skip build'
+        description: 'Skip build (for testing)'
         type: boolean
         default: false
       build_force:
-        description: 'Force build'
+        description: 'Force build (for testing)'
         type: boolean
         default: false
       release_skip:
-        description: 'Skip release'
+        description: 'Skip realese (for testing)'
         type: boolean
         default: false
 
@@ -52,33 +52,59 @@ jobs:
   prepare:
     runs-on: self-hosted
     outputs:
-      repo_tag: ${{ steps.tag.outputs.repo_tag }}
-      release_tag: ${{ steps.tag.outputs.release_tag }}
+      repo_tag:     ${{ steps.check.outputs.repo_tag }}
+      combined_tag: ${{ steps.check.outputs.combined_tag }}
+      skip:         ${{ steps.check.outputs.skip }}
     steps:
       - name: 🧹 Clean workspace
         run: sudo find . -mindepth 1 -delete
 
-      - name: 🌐 Install dependencies
+      - name: 🌐 Install deps
         run: |
           sudo timedatectl set-timezone Europe/Moscow
           sudo apt-get update && sudo apt-get install -y jq curl tree
 
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
-      - name: 📦 Clone upstream repo
-        run: git clone ${{ env.REPO_EXT_URL }} ${{ env.WORKDIR }}
-
-      - name: 🏷 Get latest tag
-        id: tag
-        working-directory: ${{ env.WORKDIR }}
+      - name: 📦 Fetch latest upstream tag
+        id: check
         run: |
-          repo_tag=$(git describe --tags $(git rev-list --tags --max-count=1))
-          release_tag=$(date +"%Y.%m.%d-%H%M%S")
-          echo "repo_tag=$repo_tag" >> $GITHUB_OUTPUT
-          echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
+          # 1) Получаем тег
+          latest_tag=$(curl -s https://api.github.com/repos/${{ env.REPO_EXT_NAME }}/releases/latest \
+                       | jq -r '.tag_name')
+          if [ -z "$latest_tag" ] || [ "$latest_tag" = "null" ]; then
+            echo "❌ Cannot fetch latest tag" >&2
+            exit 1
+          fi
+          combined="caddy-l4_${latest_tag}"
 
-      - name: 📁 Show cloned tree
-        run: tree -L 3 -a ${{ env.WORKDIR }}
+          # 2) Прокидываем в outputs
+          echo "repo_tag=$latest_tag"    >> $GITHUB_OUTPUT
+          echo "combined_tag=$combined"  >> $GITHUB_OUTPUT
+
+          # 3) По умолчанию skip=true, если уже есть этот tэг
+          skip=false
+
+          # 4) Если это push в ветку test — всегда пересобирать
+          #    Учитываем UI-флаги: build-skip и build_force
+          #    skip=true, если уже есть этот tэг
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then
+            skip=false
+          elif [[ "${{ github.event.inputs.build_force }}" == "true" ]]; then
+            skip=false
+          elif [[ "${{ github.event.inputs.build_skip }}" == "true" ]]; then
+            skip=true
+          elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
+            skip=true
+          fi
+
+          # 6) Выводим итог
+          echo "skip=$skip"
+          echo "skip=$skip" >> $GITHUB_OUTPUT
+        shell: bash
 
   build:
     needs: prepare
