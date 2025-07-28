@@ -13,6 +13,8 @@ CONFIG_COOLDOWN=${CONFIG_COOLDOWN:-10}          # Пауза между пере
 USE_JSON=${USE_JSON:-false}                     # Использовать JSON-конфиг вместо Caddyfile
 CLEAR_START=${CLEAR_START:-false}       # true — только запускаем Caddy, без лупов и watcher
 LOGLEVEL=${LOGLEVEL:-INFO}                      # Уровень логирования (DEBUG|INFO|WARN|ERROR)
+FLAG_FILE=${FLAG_FILE:-/tmp/random_html_done}
+
 
 # snippet-параметры
 TMPFILE=${TMPFILE:-/tmp/defender_cidrs.txt}                                             # Временный файл CIDR
@@ -168,30 +170,35 @@ random_html() {
     extracted_path="$temp_extract/$extracted_dir"
 
     unzip_cmd="${UNZIP_CMD:-unzip -q}"
-    wget_cmd="${WGET_CMD:-wget}"
+    wget_cmd="${WGET_CMD:-wget -q}"
     rm_cmd="${RM_CMD:-rm -rf}"
     cp_cmd="${CP_CMD:-cp -a}"
 
-    # === ПОДГОТОВКА ВРЕМЕННОЙ ДИРЕКТОРИИ ===
-    $rm_cmd "$temp_extract" >/dev/null 2>&1 || true
-    mkdir -p "$temp_extract" || {
-        log ERROR "Не удалось создать временную директорию: $temp_extract"
-        return 0
-    }
-
-    archive_path="$temp_extract/$archive_name"
-
-    # === ЗАГРУЗКА И РАСПАКОВКА ===
-    log INFO "Загрузка $repo_url в $archive_path"
-    $wget_cmd "$repo_url" -O "$archive_path"
-    log INFO "Распаковка $archive_path в $temp_extract"
-    $unzip_cmd "$archive_path" -d "$temp_extract"
-    log INFO "Удаляем $archive_path"
-    $rm_cmd "$archive_path"
-
+    # === ЗАГРУЗКА И РАСПАКОВКА ТОЛЬКО ПРИ ОТСУТСТВИИ ===
     if [ ! -d "$extracted_path" ]; then
-        log ERROR "Извлечённая директория не найдена: $extracted_path"
-        return 0
+        log INFO "Шаблоны не найдены в $extracted_path, скачиваем и распаковываем…"
+
+        # Очистка старого
+        $rm_cmd "$temp_extract" >/dev/null 2>&1 || true
+        mkdir -p "$temp_extract" || {
+            log ERROR "Не удалось создать временную директорию: $temp_extract"
+            return 1
+        }
+
+        archive_path="$temp_extract/$archive_name"
+
+        # Загрузка
+        log INFO "Загрузка $repo_url → $archive_path"
+        $wget_cmd "$repo_url" -O "$archive_path"
+
+        # Распаковка
+        log INFO "Распаковка $archive_path → $temp_extract"
+        $unzip_cmd "$archive_path" -d "$temp_extract"
+
+        # Убираем архив
+        $rm_cmd "$archive_path"
+    else
+        log INFO "Шаблоны уже есть в $extracted_path, пропускаем загрузку."
     fi
 
     # === ПОИСК ШАБЛОНОВ ===
@@ -199,22 +206,23 @@ random_html() {
     for d in "$extracted_path"/*; do
         [ -d "$d" ] && [ "$(basename "$d")" != "assets" ] && template_dirs="$template_dirs $d"
     done
-
     if [ -z "$template_dirs" ]; then
         log ERROR "Шаблоны не найдены в $extracted_path"
-        return 0
+        return 1
     fi
 
     # === ВЫБОР СЛУЧАЙНОГО ШАБЛОНА ===
     set -- $template_dirs
     count=$#
-    rand_index=$(awk -v max="$count" 'BEGIN { srand(); print int(rand() * max) + 1 }')
+    rand_index=$(awk -v max="$count" 'BEGIN{srand(); print int(rand()*max)+1}')
     i=1
     for path in "$@"; do
-        [ "$i" -eq "$rand_index" ] && selected_template="$path" && break
-        i=$((i + 1))
+        if [ "$i" -eq "$rand_index" ]; then
+            selected_template="$path"
+            break
+        fi
+        i=$((i+1))
     done
-
     log INFO "Выбран шаблон: $(basename "$selected_template")"
 
     # === ПОДГОТОВКА КАТАЛОГА НАЗНАЧЕНИЯ ===
@@ -222,15 +230,16 @@ random_html() {
         $rm_cmd "$sitedir"/* "$sitedir"/.[!.]* "$sitedir"/..?* 2>/dev/null || true
     else
         mkdir -p "$sitedir" || {
-            log "ERROR" "Не удалось создать каталог назначения: $sitedir"
-            return 0
+            log ERROR "Не удалось создать каталог назначения: $sitedir"
+            return 1
         }
     fi
 
     # === КОПИРОВАНИЕ ШАБЛОНА ===
-    log INFO "Копируем шаблон $selected_template в $sitedir"
+    log INFO "Копируем шаблон $selected_template → $sitedir"
     $cp_cmd "$selected_template/." "$sitedir"
 }
+
 
 upstream_healthcheck_loop() {
   local interval="${HEALTHCHECK_INTERVAL:-300}"         # Интервал между проверками
@@ -270,15 +279,32 @@ main() {
   ensure_nss_db
 
   if [ "$CLEAR_START" = "false" ]; then
-      start_pem_loop & add_pid $!
-      watch_config & add_pid $!
-      upstream_healthcheck_loop & add_pid $!
+    start_pem_loop & add_pid $!
+    watch_config   & add_pid $!
+    upstream_healthcheck_loop & add_pid $!
   else
-      log INFO "CLEAR_START=true — only starting Caddy."
+    log INFO "CLEAR_START=true — пропускаем watcher’ы."
   fi
 
-  if [ ! -f /srv/index.html ]; then
-    random_html
+  if [ ! -f "$FLAG_FILE" ]; then
+    # Во время первого запуска: смотрим на index.html
+    if [ ! -f /srv/index.html ]; then
+      log INFO "Первый запуск: /srv/index.html не найден — генерируем шаблон."
+      if random_html; then
+        touch "$FLAG_FILE"
+        log INFO "Флаг $FLAG_FILE создан."
+      else
+        log ERROR "random_html() упал на первом запуске."
+      fi
+    else
+      log INFO "/srv/index.html уже есть — генерация не нужна, флаг не ставим."
+    fi
+  else
+    # при рестартах (флаг уже есть)
+    log INFO "Рестарт контейнера: обновляем шаблон."
+    if ! random_html; then
+      log ERROR "random_html() упал при рестарте."
+    fi
   fi
 
   run_caddy
