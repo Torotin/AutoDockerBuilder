@@ -15,15 +15,15 @@ on:
         description: 'Build for 386'
         type: boolean
         default: false
-      build-skip:
+      build_skip:
         description: 'Skip build (for testing)'
         type: boolean
         default: false
-      build-force:
+      build_force:
         description: 'Force build (for testing)'
         type: boolean
         default: false
-      release-skip:
+      release_skip:
         description: 'Skip realese (for testing)'
         type: boolean
         default: false
@@ -36,15 +36,15 @@ on:
     - cron: '0 2 * * *'
 
 env:
-  repo_ext_git_url: https://github.com/MHSanaei/3x-ui.git
-  repo_ext_git_release_name: MHSanaei/3x-ui
-  docker-repo: torotin/3x-ui
-  workdir: ./workdir
-  tar-folder: ./tar-files
-  artifact-dir: ./artifacts
-  custom_dockerfile_path: ./bin/3x-ui/dockerfile
-  custom_DockerEntrypoint_path: ./bin/3x-ui/DockerEntrypoint.sh
-  custom_DockerInit_path: ./bin/3x-ui/DockerInit.sh
+  REPO_EXT_URL: https://github.com/MHSanaei/3x-ui.git
+  REPO_EXT_NAME: MHSanaei/3x-ui
+  DOCKER_REPO: torotin/3x-ui
+  WORKDIR: ./WORKDIR
+  TAR_FOLDER: ./tar-files
+  ARTIFACT_DIR: ./artifacts
+  CUSTOM_DOCKERFILE: ./bin/3x-ui/dockerfile
+  CUSTOM_DOCKERINIT: ./bin/3x-ui/DockerInit.sh
+  CUSTOM_ENTRYPOINT: ./bin/3x-ui/DockerEntrypoint.sh
 
 jobs:
   prepare:
@@ -69,29 +69,43 @@ jobs:
       - name: 📦 Fetch latest upstream tag
         id: check
         run: |
-          latest_tag=$(curl -s https://api.github.com/repos/${{ env.repo_ext_git_release_name }}/releases/latest \
+          # 1) Получаем тег
+          latest_tag=$(curl -s https://api.github.com/repos/${{ env.REPO_EXT_NAME }}/releases/latest \
                        | jq -r '.tag_name')
           if [ -z "$latest_tag" ] || [ "$latest_tag" = "null" ]; then
             echo "❌ Cannot fetch latest tag" >&2
             exit 1
           fi
-          combined="3x-ui_$latest_tag"
+          combined="caddy-l4_${latest_tag}"
+
+          # 2) Прокидываем в outputs
           echo "repo_tag=$latest_tag"    >> $GITHUB_OUTPUT
-          echo "combined_tag=$combined"   >> $GITHUB_OUTPUT
-          if git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
+          echo "combined_tag=$combined"  >> $GITHUB_OUTPUT
+
+          # 3) По умолчанию skip=true, если уже есть этот tэг
+          skip=false
+
+          # 4) Если это push в ветку test — всегда пересобирать
+          #    Учитываем UI-флаги: build-skip и build_force
+          #    skip=true, если уже есть этот tэг
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then
+            skip=false
+          elif [[ "${{ github.event.inputs.build_force }}" == "true" ]]; then
+            skip=false
+          elif [[ "${{ github.event.inputs.build_skip }}" == "true" ]]; then
+            skip=true
+          elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
+            skip=true
           fi
 
-          if ${{ github.event.inputs.build-force }} == 'true'
-          then
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
+          # 6) Выводим итог
+          echo "skip=$skip"
+          echo "skip=$skip" >> $GITHUB_OUTPUT
+        shell: bash
 
   build:
     needs: prepare
-    if: ${{ needs.prepare.outputs.skip == 'false' && github.event.inputs.build-skip == 'false' }}
+    if: ${{ github.event.inputs.build_skip != 'true' }}
     runs-on: self-hosted
     outputs:
       repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
@@ -115,22 +129,22 @@ jobs:
 
       - name: 🔧 Clone external repo
         run: |
-          git clone ${{ env.repo_ext_git_url }} ${{ env.workdir }}
-          cd ${{ env.workdir }}
+          git clone ${{ env.REPO_EXT_URL }} ${{ env.WORKDIR }}
+          cd ${{ env.WORKDIR }}
           git checkout ${{ needs.prepare.outputs.repo_tag }}
 
       - name: ⚙️ Prepare artifact folders
         run: |
-          mkdir -p ${{ env.artifact-dir }} ${{ env.tar-folder }}
-          echo "${{ steps.platforms.outputs.platforms }}" > "${{ env.artifact-dir }}/platforms.txt"
-          echo "${{ needs.prepare.outputs.repo_tag }}"      > "${{ env.artifact-dir }}/repo_tag.txt"
+          mkdir -p ${{ env.ARTIFACT_DIR }} ${{ env.TAR_FOLDER }}
+          echo "${{ steps.platforms.outputs.platforms }}" > "${{ env.ARTIFACT_DIR }}/platforms.txt"
+          echo "${{ needs.prepare.outputs.repo_tag }}"      > "${{ env.ARTIFACT_DIR }}/repo_tag.txt"
 
       - name: 🛠️ Replace Dockerfile & scripts
         run: |
-          [ -f "$custom_dockerfile_path" ]      && cp "$custom_dockerfile_path"      "$workdir/Dockerfile"
-          [ -f "$custom_DockerEntrypoint_path" ] && cp "$custom_DockerEntrypoint_path" "$workdir/DockerEntrypoint.sh"
-          [ -f "$custom_DockerInit_path" ]       && cp "$custom_DockerInit_path"       "$workdir/DockerInit.sh"
-          test -f "$workdir/Dockerfile" || { echo "❌ Dockerfile missing"; exit 1; }
+          [ -f "$CUSTOM_DOCKERFILE" ]      && cp "$CUSTOM_DOCKERFILE"      "$WORKDIR/Dockerfile"
+          [ -f "$CUSTOM_ENTRYPOINT" ] && cp "$CUSTOM_ENTRYPOINT" "$WORKDIR/DockerEntrypoint.sh"
+          [ -f "$CUSTOM_DOCKERINIT" ]       && cp "$CUSTOM_DOCKERINIT"       "$WORKDIR/DockerInit.sh"
+          test -f "$WORKDIR/Dockerfile" || { echo "❌ Dockerfile missing"; exit 1; }
 
       - name: 🧱 Set up Buildx
         id: buildx
@@ -154,34 +168,34 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           builder:   ${{ steps.buildx.outputs.name }}
-          context:   ${{ env.workdir }}
+          context:   ${{ env.WORKDIR }}
           platforms: ${{ steps.platforms.outputs.platforms }}
           push:      true
           tags: |
-            ${{ env.docker-repo }}:latest
-            ${{ env.docker-repo }}:${{ needs.prepare.outputs.repo_tag }}
+            ${{ env.DOCKER_REPO }}:latest
+            ${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}
           cache-from: |
-            type=registry,ref=${{ env.docker-repo }}:buildcache
+            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache
           cache-to: |
-            type=registry,ref=${{ env.docker-repo }}:buildcache,mode=max
+            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache,mode=max
 
   release:
     needs: build
-    if: ${{ needs.build.outputs.skip == 'false' && github.event.inputs.release-skip == 'false' }}
+    if: ${{ github.event.inputs.release_skip != 'true' }}
     runs-on: self-hosted
     steps:
       - name: 📦 Archive latest image
         run: |
           set -e
-          IMAGE="${{ env.docker-repo }}:latest"
-          OUT="${{ env.tar-folder }}/latest"
+          IMAGE="${{ env.DOCKER_REPO }}:latest"
+          OUT="${{ env.TAR_FOLDER }}/latest"
           mkdir -p "$OUT"
           docker pull "$IMAGE"
           docker save -o "$OUT/image.tar" "$IMAGE"
           echo "latest" > "$OUT/repo_tag.txt"
-          tar -czf "${{ env.tar-folder }}/3x-ui-latest.tar.gz" -C "$OUT" .
+          tar -czf "${{ env.TAR_FOLDER }}/3x-ui-latest.tar.gz" -C "$OUT" .
           rm -rf "$OUT"
-          echo "${{ env.tar-folder }}/3x-ui-latest.tar.gz" >> "${{ env.artifact-dir }}/artifacts.txt"
+          echo "${{ env.TAR_FOLDER }}/3x-ui-latest.tar.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
 
       - name: 📋 Generate Markdown list of platforms
         id: platforms-md
@@ -191,7 +205,7 @@ jobs:
           IFS=',' read -ra ARGS <<< "${{ needs.build.outputs.platforms }}"
           for p in "${ARGS[@]}"; do
             safe=$(echo "$p" | sed 's#/#-#g')
-            list+="- $p → [\`${safe}\`](https://hub.docker.com/r/${{ env.docker-repo }}/tags?name=$safe)\n"
+            list+="- $p → [\`${safe}\`](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
           done
           echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
           echo -e "$list" >> $GITHUB_OUTPUT
@@ -206,16 +220,16 @@ jobs:
           prerelease: false
           body: |
             ### 📦 Release Notes
-            - ![](https://img.shields.io/docker/pulls/${{ env.docker-repo }}.svg?style=flat-square)
-            - **[DockerHub](https://hub.docker.com/r/${{ env.docker-repo }})**
-            - 🎯 Pull: `docker pull ${{ env.docker-repo }}:latest`
+            - ![](https://img.shields.io/docker/pulls/${{ env.DOCKER_REPO }}.svg?style=flat-square)
+            - **[DockerHub](https://hub.docker.com/r/${{ env.DOCKER_REPO }})**
+            - 🎯 Pull: `docker pull ${{ env.DOCKER_REPO }}:latest`
 
             ### 🏷 Supported Platforms
             ${{ steps.platforms-md.outputs.platforms_list }}
 
             ### 👇 Manual downloads (attachments below)
           files: |
-            ${{ env.tar-folder }}/*.tar.gz
+            ${{ env.TAR_FOLDER }}/*.tar.gz
 
       - name: 🧠 Generate GitHub Topics
         id: gen-topics
