@@ -273,9 +273,11 @@ jobs:
             safe=${p//\//-}
             list+="- \`warp-plus_${safe}\` → Docker Hub tag filter: \`$safe\`\n"
           done
+
           {
-            echo "platforms_list<<'EOF'"
-            echo -e "$list"
+            echo "platforms_list<<EOF"
+            printf "%b" "$list"
+            echo
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
