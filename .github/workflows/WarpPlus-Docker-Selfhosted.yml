@@ -157,6 +157,17 @@ jobs:
         run: |
           mkdir -p "${{ env.ARTIFACT_DIR }}" "${{ env.TAR_DIR }}"
 
+      - name: 📥 Clone upstream source (in build job)
+        if: ${{ needs.prepare.outputs.skip != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${{ env.WORKDIR }}"
+          git clone --depth 1 --branch "${{ needs.prepare.outputs.repo_tag }}" \
+            "${{ env.REPO_EXT_URL }}" "${{ env.WORKDIR }}"
+          echo "Cloned to ${{ env.WORKDIR }}"
+          ls -la "${{ env.WORKDIR }}"
+
       - name: 🔎 Debug paths
         shell: bash
         run: |
