@@ -156,6 +156,15 @@ jobs:
       - name: ⚙️ Prepare artifact folders
         run: |
           mkdir -p "${{ env.ARTIFACT_DIR }}" "${{ env.TAR_DIR }}"
+          
+      - name: 🔎 Debug paths
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pwd
+          ls -la
+          ls -la bin || true
+          ls -la bin/warp || true
 
       - name: 🛠️ Replace Dockerfile & scripts
         shell: bash
