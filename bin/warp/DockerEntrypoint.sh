@@ -231,45 +231,48 @@ prepare_config() {
   fi
 
   # Создаём JSON безопасно
-  json=$(jq -n \
-    --arg bind        "$BIND" \
-    --arg endpoint    "$ENDPOINT" \
-    --arg key         "$KEY" \
-    --arg dns         "$DNS" \
-    --arg country     "$COUNTRY" \
-    --arg rtt         "$RTT" \
-    --arg cache_dir   "$CACHE_DIR" \
-    --arg fwmark      "$FWMARK" \
-    --arg wgconf      "$WGCONF" \
-    --arg reserved    "$RESERVED" \
-    --arg test_url    "$TEST_URL" \
-    --argjson verbose ${VERBOSE:-false} \
-    --argjson gool    ${GOOL:-false} \
-    --argjson cfon    ${CFON:-false} \
-    --argjson scan    ${SCAN:-true} \
-    --argjson tunexp  ${TUN_EXPERIMENTAL:-false} \
-    --argjson v4      $([ "${IPV4:-false}" = "true" ] || [ "${IPV4:-0}" = "1" ] && echo true || echo false) \
-    --argjson v6      $([ "${IPV6:-false}" = "true" ] || [ "${IPV6:-0}" = "1" ] && echo true || echo false) \
-    '{
-      verbose: $verbose,
-      bind: $bind,
-      endpoint: $endpoint,
-      key: $key,
-      dns: $dns,
-      gool: $gool,
-      cfon: $cfon,
-      country: $country,
-      scan: $scan,
-      rtt: $rtt,
-      "cache-dir": $cache_dir,
-      fwmark: $fwmark,
-      wgconf: $wgconf,
-      reserved: $reserved,
-      "test-url": $test_url
-    }
-    + ( $v4 == true ? {"4": true} : {} )
-    + ( $v6 == true ? {"6": true} : {} )
-    ')
+  json=$(
+    jq -n \
+      --arg bind        "$BIND" \
+      --arg endpoint    "$ENDPOINT" \
+      --arg key         "$KEY" \
+      --arg dns         "$DNS" \
+      --arg country     "$COUNTRY" \
+      --arg rtt         "$RTT" \
+      --arg cache_dir   "$CACHE_DIR" \
+      --arg fwmark      "$FWMARK" \
+      --arg wgconf      "$WGCONF" \
+      --arg reserved    "$RESERVED" \
+      --arg test_url    "$TEST_URL" \
+      --argjson verbose ${VERBOSE:-false} \
+      --argjson gool    ${GOOL:-false} \
+      --argjson cfon    ${CFON:-false} \
+      --argjson scan    ${SCAN:-true} \
+      --argjson tunexp  ${TUN_EXPERIMENTAL:-false} \
+      --argjson v4      $([ "${IPV4:-false}" = "true" ] || [ "${IPV4:-0}" = "1" ] && echo true || echo false) \
+      --argjson v6      $([ "${IPV6:-false}" = "true" ] || [ "${IPV6:-0}" = "1" ] && echo true || echo false) \
+      '{
+        verbose: $verbose,
+        bind: $bind,
+        endpoint: $endpoint,
+        key: $key,
+        dns: $dns,
+        gool: $gool,
+        cfon: $cfon,
+        country: $country,
+        scan: $scan,
+        rtt: $rtt,
+        "cache-dir": $cache_dir,
+        fwmark: $fwmark,
+        wgconf: $wgconf,
+        reserved: $reserved,
+        "test-url": $test_url
+      }
+      | if $v4 then . + {"4": true} else . end
+      | if $v6 then . + {"6": true} else . end
+      '
+  )
+
 
   if ! printf '%s' "$json" | jq . > "$CONFIG" 2>/dev/null; then
     log ERROR "Invalid JSON generated:"; echo "$json" >&2; exit 1
