@@ -156,7 +156,7 @@ jobs:
       - name: ⚙️ Prepare artifact folders
         run: |
           mkdir -p "${{ env.ARTIFACT_DIR }}" "${{ env.TAR_DIR }}"
-          
+
       - name: 🔎 Debug paths
         shell: bash
         run: |
@@ -166,19 +166,22 @@ jobs:
           ls -la bin || true
           ls -la bin/warp || true
 
+      - name: 🧩 Copy upstream code into root for Docker context
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -d "${{ env.WORKDIR }}" ] || { echo "❌ WORKDIR not found"; exit 1; }
+          shopt -s dotglob
+          cp -r "${{ env.WORKDIR }}"/* .
+
       - name: 🛠️ Replace Dockerfile & scripts
         shell: bash
         run: |
           set -euo pipefail
-          # Use custom Dockerfile if present
-          [[ -f "${{ env.CUSTOM_DOCKERFILE }}"  ]] && cp "${{ env.CUSTOM_DOCKERFILE }}" Dockerfile
-          # Use custom Entrypoint if present
-          [[ -f "${{ env.CUSTOM_ENTRYPOINT }}"  ]] && cp "${{ env.CUSTOM_ENTRYPOINT }}" DockerEntrypoint.sh
-          # Optional: custom config template (если используется при сборке)
-          [[ -f "${{ env.CUSTOM_CONFIG }}"      ]] && cp "${{ env.CUSTOM_CONFIG }}" config.json.template
-
-      - name: 🧩 Copy upstream code into root for Docker context
-        run: cp -r ${{ env.WORKDIR }}/* .
+          SRC="./bin/warp"
+          [ -f "${SRC}/Dockerfile" ] && install -m 0644 "${SRC}/Dockerfile" Dockerfile || true
+          [ -f "${SRC}/DockerEntrypoint.sh" ] && install -m 0755 "${SRC}/DockerEntrypoint.sh" DockerEntrypoint.sh || true
+          [ -f "${SRC}/config.json.template" ] && install -m 0644 "${SRC}/config.json.template" config.json.template || true
 
       - name: 📄 Verify Dockerfile exists
         shell: bash
