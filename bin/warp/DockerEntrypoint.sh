@@ -137,6 +137,21 @@ setup_signal_handlers() {
   trap 'kill_all; log INFO "All processes stopped."; exit 0' TERM INT QUIT
 }
 
+proxy_addr_from_bind() {
+  # Извлекаем порт из BIND и строим адрес 127.0.0.1:PORT
+  # Поддерживаем варианты: "0.0.0.0:1080", "127.0.0.1:1080", "[::]:1080", "[::1]:1080"
+  local bind="${BIND}"
+  local port=""
+  case "$bind" in
+    *:*)
+      port="${bind##*:}"
+      ;;
+  esac
+  # Фоллбек, если порт не нашли
+  [ -n "$port" ] || port=1080
+  echo "127.0.0.1:${port}"
+}
+
 # === Healthcheck function ===
 healthcheck_loop() {
   local interval="${HEALTHCHECK_INTERVAL:-300}"
@@ -144,6 +159,7 @@ healthcheck_loop() {
   local max_fails="${HEALTHCHECK_MAX_FAILURES:-3}"
   local url="${HEALTHCHECK_URL:-https://ifconfig.me}"
   local initial_delay="${HEALTHCHECK_INITIAL_DELAY:-60}"
+  local proxy="$(proxy_addr_from_bind)"
 
   log INFO "Starting healthcheck via SOCKS5: $url"
   log INFO "Initial delay: ${initial_delay}s, interval: ${interval}s, failure threshold: $max_fails"
@@ -151,8 +167,8 @@ healthcheck_loop() {
   sleep "$initial_delay"
 
   while :; do
-    if ! output=$(curl --socks5 $BIND -sf --max-time "$timeout" "$url"); then
-      log ERROR "Healthcheck: Failed to reach $url via SOCKS5. Triggering container restart."
+    if ! output=$(curl --socks5-hostname "$proxy" -sf --max-time "$timeout" "$url"); then
+      log ERROR "Healthcheck: Failed to reach $url via SOCKS5 ($proxy). Triggering container restart."
       kill 1
     fi
 
@@ -194,29 +210,19 @@ add_field() {
 }
 
 prepare_config() {
-
   set_random_bool_if_equal GOOL CFON
   set_random_bool_if_equal IPV4 IPV6
   force_ipv4_if_no_ipv6
 
-  # === Country selection logic ===
   COUNTRY_LIST="AT BE BG BR CA CH CZ DE DK EE ES FI FR GB HR HU IE IN IT JP LV NL NO PL PT RO RS SE SG SK UA US"
-
-  # Normalize and filter exclusions
   EXCLUDE_LIST=$(echo "$EXCLUDE_COUNTRY" | tr ',;' ' ' | tr '[:lower:]' '[:upper:]' | xargs)
-
-  FILTERED_COUNTRY_LIST=$(for c in $COUNTRY_LIST; do
-    echo "$EXCLUDE_LIST" | grep -qw "$c" || echo "$c"
-  done)
+  FILTERED_COUNTRY_LIST=$(for c in $COUNTRY_LIST; do echo "$EXCLUDE_LIST" | grep -qw "$c" || echo "$c"; done)
 
   if [ -z "$COUNTRY" ]; then
     COUNTRY=$(echo "$FILTERED_COUNTRY_LIST" | shuf -n 1)
     log INFO "COUNTRY not set. Randomly selected: $COUNTRY"
   else
-    found=0
-    for c in $FILTERED_COUNTRY_LIST; do
-      [ "$c" = "$COUNTRY" ] && found=1 && break
-    done
+    found=0; for c in $FILTERED_COUNTRY_LIST; do [ "$c" = "$COUNTRY" ] && found=1 && break; done
     if [ $found -eq 0 ]; then
       prev="$COUNTRY"
       COUNTRY=$(echo "$FILTERED_COUNTRY_LIST" | shuf -n 1)
@@ -224,43 +230,56 @@ prepare_config() {
     fi
   fi
 
-  json="{"
+  # Создаём JSON безопасно
+  json=$(jq -n \
+    --arg bind        "$BIND" \
+    --arg endpoint    "$ENDPOINT" \
+    --arg key         "$KEY" \
+    --arg dns         "$DNS" \
+    --arg country     "$COUNTRY" \
+    --arg rtt         "$RTT" \
+    --arg cache_dir   "$CACHE_DIR" \
+    --arg fwmark      "$FWMARK" \
+    --arg wgconf      "$WGCONF" \
+    --arg reserved    "$RESERVED" \
+    --arg test_url    "$TEST_URL" \
+    --argjson verbose ${VERBOSE:-false} \
+    --argjson gool    ${GOOL:-false} \
+    --argjson cfon    ${CFON:-false} \
+    --argjson scan    ${SCAN:-true} \
+    --argjson tunexp  ${TUN_EXPERIMENTAL:-false} \
+    --argjson v4      $([ "${IPV4:-false}" = "true" ] || [ "${IPV4:-0}" = "1" ] && echo true || echo false) \
+    --argjson v6      $([ "${IPV6:-false}" = "true" ] || [ "${IPV6:-0}" = "1" ] && echo true || echo false) \
+    '{
+      verbose: $verbose,
+      bind: $bind,
+      endpoint: $endpoint,
+      key: $key,
+      dns: $dns,
+      gool: $gool,
+      cfon: $cfon,
+      country: $country,
+      scan: $scan,
+      rtt: $rtt,
+      "cache-dir": $cache_dir,
+      fwmark: $fwmark,
+      wgconf: $wgconf,
+      reserved: $reserved,
+      "test-url": $test_url
+    }
+    + ( $v4 == true ? {"4": true} : {} )
+    + ( $v6 == true ? {"6": true} : {} )
+    ')
 
-  add_field "verbose"        "$VERBOSE"        raw
-  add_field "bind"           "$BIND"           string
-  add_field "endpoint"       "$ENDPOINT"       string
-  add_field "key"            "$KEY"            string
-  add_field "dns"            "$DNS"            string
-  add_field "gool"           "$GOOL"           raw
-  add_field "cfon"           "$CFON"           raw
-  add_field "country"        "$COUNTRY"        string
-  add_field "scan"           "$SCAN"           raw
-  add_field "rtt"            "$RTT"            string
-  add_field "cache-dir"      "$CACHE_DIR"      string
-  add_field "fwmark"         "$FWMARK"         string
-  add_field "wgconf"         "$WGCONF"         string
-  add_field "reserved"       "$RESERVED"       string
-  add_field "test-url"       "$TEST_URL"       string
-
-  if [ "$IPV4" = "true" ] || [ "$IPV4" = "1" ]; then
-    add_field "4" true raw
-  elif [ "$IPV6" = "true" ] || [ "$IPV6" = "1" ]; then
-    add_field "6" true raw
+  if ! printf '%s' "$json" | jq . > "$CONFIG" 2>/dev/null; then
+    log ERROR "Invalid JSON generated:"; echo "$json" >&2; exit 1
   fi
 
-  json="$json}"
-
-  if ! echo "$json" | jq . > "$CONFIG" 2>/dev/null; then
-    log ERROR "Invalid JSON generated:"
-    echo "$json" >&2
-    exit 1
-  fi
-
-  log INFO "Config successfully created:"
-  cat "$CONFIG"
+  log INFO "Config successfully created:"; cat "$CONFIG"
 }
 
 main() {
+  mkdir -p "$CACHE_DIR"
   prepare_config
   log INFO "Launching healthcheck background loop..."
   setup_signal_handlers
