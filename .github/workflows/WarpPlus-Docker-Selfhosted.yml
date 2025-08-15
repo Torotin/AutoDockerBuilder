@@ -24,7 +24,7 @@ on:
         type: boolean
         default: false
       release_skip:
-        description: 'Skip realese (for testing)'
+        description: 'Skip release (for testing)'
         type: boolean
         default: false
 
@@ -33,6 +33,14 @@ on:
       - '.github/workflows/WarpPlus-Docker-Selfhosted.yml'
       - 'bin/warp/**'
     branches: [ main, test ]
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   PROJECT_NAME: warp-plus
@@ -51,6 +59,7 @@ env:
 jobs:
   prepare:
     runs-on: self-hosted
+    timeout-minutes: 15
     outputs:
       repo_tag:     ${{ steps.check.outputs.repo_tag }}
       combined_tag: ${{ steps.check.outputs.combined_tag }}
@@ -62,7 +71,7 @@ jobs:
       - name: 🌐 Install deps
         run: |
           sudo timedatectl set-timezone Europe/Moscow
-          sudo apt-get update && sudo apt-get install -y jq curl tree
+          sudo apt-get update && sudo apt-get install -y jq curl git tree
 
       - uses: actions/checkout@v4
         with:
@@ -71,101 +80,116 @@ jobs:
 
       - name: 📦 Fetch latest upstream tag
         id: check
+        shell: bash
         run: |
-          # 1) Получаем тег
-          latest_tag=$(curl -s https://api.github.com/repos/${{ env.REPO_EXT_NAME }}/releases/latest \
-                       | jq -r '.tag_name')
-          if [ -z "$latest_tag" ] || [ "$latest_tag" = "null" ]; then
-            echo "❌ Cannot fetch latest tag" >&2
-            exit 1
+          set -euo pipefail
+          latest_tag="$(curl -fsSL https://api.github.com/repos/${{ env.REPO_EXT_NAME }}/releases/latest | jq -r '.tag_name')"
+          if [[ -z "$latest_tag" || "$latest_tag" == "null" ]]; then
+            echo "❌ Cannot fetch latest tag" >&2; exit 1
           fi
-          combined="caddy-l4_${latest_tag}"
 
-          # 2) Прокидываем в outputs
-          echo "repo_tag=$latest_tag"    >> $GITHUB_OUTPUT
-          echo "combined_tag=$combined"  >> $GITHUB_OUTPUT
+          combined="warp-plus_${latest_tag}"
 
-          # 3) По умолчанию skip=true, если уже есть этот tэг
+          echo "repo_tag=$latest_tag"    >> "$GITHUB_OUTPUT"
+          echo "combined_tag=$combined"  >> "$GITHUB_OUTPUT"
+
+          # По умолчанию не скипаем
           skip=false
 
-          # 4) Если это push в ветку test — всегда пересобирать
-          #    Учитываем UI-флаги: build-skip и build_force
-          #    skip=true, если уже есть этот tэг
+          # Если ветка test — всегда билдим
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then
             skip=false
           elif [[ "${{ github.event.inputs.build_force }}" == "true" ]]; then
             skip=false
           elif [[ "${{ github.event.inputs.build_skip }}" == "true" ]]; then
             skip=true
+          # Если в текущем репо уже есть тег с таким названием — скип
           elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
             skip=true
           fi
 
-          # 6) Выводим итог
           echo "skip=$skip"
-          echo "skip=$skip" >> $GITHUB_OUTPUT
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
+      - name: 📥 Clone upstream source to WORKDIR
+        if: ${{ steps.check.outputs.skip != 'true' }}
         shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${{ env.WORKDIR }}"
+          git clone --depth 1 --branch "${{ steps.check.outputs.repo_tag }}" "${{ env.REPO_EXT_URL }}" "${{ env.WORKDIR }}"
+          echo "Upstream cloned to ${{ env.WORKDIR }}"
+          ls -la "${{ env.WORKDIR }}"
 
   build:
     needs: prepare
     runs-on: self-hosted
+    timeout-minutes: 60
     outputs:
-      repo_tag: ${{ needs.prepare.outputs.repo_tag }}
+      repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
       platforms: ${{ steps.platforms.outputs.platforms }}
-    if: ${{ github.event.inputs.build_skip != 'true' }}
+    if: ${{ github.event.inputs.build_skip != 'true' && needs.prepare.outputs.skip != 'true' }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
       - name: 🬸 Compose selected platforms
         id: platforms
+        shell: bash
         run: |
-          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
             platforms="linux/amd64"
           else
             platforms=""
-            [ "${{ github.event.inputs.build_amd64 }}" = "true" ] && platforms="${platforms},linux/amd64"
-            [ "${{ github.event.inputs.build_arm64 }}" = "true" ] && platforms="${platforms},linux/arm64/v8"
-            [ "${{ github.event.inputs.build_386 }}" = "true" ] && platforms="${platforms},linux/386"
+            [[ "${{ github.event.inputs.build_amd64 }}" == "true" ]] && platforms="${platforms},linux/amd64"
+            [[ "${{ github.event.inputs.build_arm64 }}" == "true" ]] && platforms="${platforms},linux/arm64/v8"
+            [[ "${{ github.event.inputs.build_386 }}"   == "true" ]] && platforms="${platforms},linux/386"
             platforms="${platforms#,}"
+            [[ -z "$platforms" ]] && { echo "No platforms selected"; exit 1; }
           fi
           echo "Selected platforms: $platforms"
-          echo "platforms=$platforms" >> $GITHUB_OUTPUT
+          echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
 
       - name: ⚙️ Prepare artifact folders
         run: |
-          mkdir -p ${{ env.ARTIFACT_DIR }} ${{ env.TAR_DIR }}
-          echo "${{ steps.platforms.outputs.platforms }}" > "${{ env.ARTIFACT_DIR }}/platforms.txt"
-          echo "${{ needs.prepare.outputs.repo_tag }}"      > "${{ env.ARTIFACT_DIR }}/repo_tag.txt"
+          mkdir -p "${{ env.ARTIFACT_DIR }}" "${{ env.TAR_DIR }}"
 
       - name: 🛠️ Replace Dockerfile & scripts
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
           # Use custom Dockerfile if present
-          if [ -f "${{ env.CUSTOM_DOCKERFILE }}" ]; then
-            cp "${{ env.CUSTOM_DOCKERFILE }}" Dockerfile
-          fi
+          [[ -f "${{ env.CUSTOM_DOCKERFILE }}"  ]] && cp "${{ env.CUSTOM_DOCKERFILE }}" Dockerfile
           # Use custom Entrypoint if present
-          if [ -f "${{ env.CUSTOM_ENTRYPOINT }}" ]; then
-            cp "${{ env.CUSTOM_ENTRYPOINT }}" DockerEntrypoint.sh
-          fi
+          [[ -f "${{ env.CUSTOM_ENTRYPOINT }}"  ]] && cp "${{ env.CUSTOM_ENTRYPOINT }}" DockerEntrypoint.sh
+          # Optional: custom config template (если используется при сборке)
+          [[ -f "${{ env.CUSTOM_CONFIG }}"      ]] && cp "${{ env.CUSTOM_CONFIG }}" config.json.template
 
       - name: 🧩 Copy upstream code into root for Docker context
         run: cp -r ${{ env.WORKDIR }}/* .
 
       - name: 📄 Verify Dockerfile exists
+        shell: bash
         run: |
-          set -e
-          if [ ! -f "Dockerfile" ]; then
-            echo "❌ Dockerfile not found!" >&2
-            exit 1
-          fi
+          set -euo pipefail
+          [[ -f "Dockerfile" ]] || { echo "❌ Dockerfile not found!" >&2; exit 1; }
 
       - name: 🔐 DockerHub Login (retry)
+        shell: bash
         run: |
+          set -euo pipefail
           for i in {1..5}; do
             echo "🔐 Attempt $i"
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin \
-              && break
-            sleep 5
+            if echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin; then
+              exit 0
+            fi
+            sleep 3
           done
+          echo "❌ Docker login failed" >&2
+          exit 1
 
       - name: 🧱 Set up Buildx
         id: buildx
@@ -190,37 +214,47 @@ jobs:
             type=registry,ref=${{ env.DOCKER_REPO }}:buildcache
           cache-to: |
             type=registry,ref=${{ env.DOCKER_REPO }}:buildcache,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.repo_tag }}
 
   release:
     needs: [prepare, build]
-    if: ${{ github.event.inputs.release_skip != 'true' }}
+    if: ${{ github.event.inputs.release_skip != 'true' && needs.prepare.outputs.skip != 'true' }}
     runs-on: self-hosted
+    timeout-minutes: 20
     steps:
-
       - name: ⚙️ Ensure artifact dirs
         run: mkdir -p "${{ env.TAR_DIR }}" "${{ env.ARTIFACT_DIR }}"
 
-      - name: 📦 Archive latest image
+      - name: 📦 Archive latest image (multi-arch manifest)
+        shell: bash
         run: |
-          safe="multiarch"
+          set -euo pipefail
           tag="${{ env.DOCKER_REPO }}:latest"
           docker pull "$tag"
-          docker save -o "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-${safe}-${{ needs.prepare.outputs.repo_tag }}.tar" "$tag"
-          gzip "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-${safe}-${{ needs.prepare.outputs.repo_tag }}.tar"
-          echo "${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-${safe}-${{ needs.prepare.outputs.repo_tag }}.tar.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
+          out="${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-multiarch-${{ needs.prepare.outputs.repo_tag }}.tar"
+          docker save -o "$out" "$tag"
+          gzip "$out"
+          echo "${out}.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
 
       - name: 📋 Generate Markdown list of platforms
         id: platforms-md
+        shell: bash
         run: |
+          set -euo pipefail
           list=""
           IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
           for p in "${PLS[@]}"; do
             safe=${p//\//-}
-            list+="- \`caddy-l4_${safe}\` → [hub](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
+            list+="- \`warp-plus_${safe}\` → Docker Hub tag filter: \`$safe\`\n"
           done
-          echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$list" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo "platforms_list<<'EOF'"
+            echo -e "$list"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: 🚀 Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -232,14 +266,13 @@ jobs:
           body: |
             ### 📦 Release Notes
             - ![](https://img.shields.io/docker/pulls/${{ env.DOCKER_REPO }}.svg?style=flat-square)
-            - **[DockerHub](https://hub.docker.com/r/${{ env.DOCKER_REPO }})**
-            - Pull: `docker pull ${{ env.DOCKER_REPO }}:latest`
+            - **DockerHub:** docker pull `${{ env.DOCKER_REPO }}:latest`
 
             ### 🏷 Supported Platforms
             ${{ steps.platforms-md.outputs.platforms_list }}
 
             ### 📥 Artifacts
-            Attached tar archives for each platform.
+            Multi-arch image tarball attached.
           files: |
             ${{ env.TAR_DIR }}/*.tar.gz
 
