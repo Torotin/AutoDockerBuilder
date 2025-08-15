@@ -1,5 +1,6 @@
 #!/bin/sh
-set -euo pipefail
+# DockerEntrypoint.sh
+set -euo pipefail 2>/dev/null || set -euo
 
 PIDS=""
 CONFIG="/etc/warp/config.json"
