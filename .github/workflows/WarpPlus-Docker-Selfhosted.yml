@@ -135,62 +135,63 @@ jobs:
 
           REPO="bepass-org/warp-plus"
           API="https://api.github.com/repos/${REPO}/releases/latest"
+          HDR=(-H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" -H "Authorization: Bearer ${{ github.token }}")
 
-          # Заголовки для API (с токеном, если он есть — чтобы не упереться в rate limit)
-          HDR=(-H "Accept: application/vnd.github+json")
-          if [[ -n "${{ secrets.GITHUB_TOKEN || '' }}" ]]; then
-            HDR+=(-H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}")
-          elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
-            HDR+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
-          fi
-
-          # Убедимся, что jq есть
-          if ! command -v jq >/dev/null 2>&1; then
-            sudo apt-get update -y
-            sudo apt-get install -y jq
-          fi
+          # Утилиты
+          sudo apt-get update -y
+          sudo apt-get install -y jq unzip
 
           echo "→ Fetching latest release metadata…"
           JSON="$(curl -fsSL "${HDR[@]}" "$API")"
-
           TAG="$(echo "$JSON" | jq -r '.tag_name')"
           echo "Latest tag: $TAG"
 
-          # Ищем asset для Linux amd64 с расширением .tar.gz
-          URL="$(echo "$JSON" \
-            | jq -r '.assets[] | select(.name|test("linux.*amd64.*\\.tar\\.gz$")) | .browser_download_url' \
-            | head -n1)"
-
-          if [[ -z "$URL" || "$URL" == "null" ]]; then
-            echo "❌ Не найден .tar.gz asset для Linux amd64 в релизе $TAG" >&2
-            echo "Assets:" >&2
+          ASSET_NAME="$(echo "$JSON" | jq -r '.assets[].name' | grep -E '^warp-plus_linux-amd64\.zip$' | head -n1 || true)"
+          if [[ -z "${ASSET_NAME}" ]]; then
+            echo "❌ Не найден asset warp-plus_linux-amd64.zip в $TAG" >&2
+            echo "Доступные assets:" >&2
             echo "$JSON" | jq -r '.assets[].name' >&2
             exit 1
           fi
 
+          URL="$(echo "$JSON" | jq -r --arg NAME "$ASSET_NAME" '.assets[] | select(.name==$NAME) | .browser_download_url')"
           echo "Download URL: $URL"
 
           mkdir -p bin/warp
-          curl -fsSL ${HDR[@]+"${HDR[@]}"} -o warp.tar.gz "$URL"
+          curl -fsSL "${HDR[@]}" -o warp.zip "$URL"
 
-          # Проверка, что это действительно gzip
-          if ! gzip -t warp.tar.gz >/dev/null 2>&1; then
-            echo "❌ Скачанный файл — не gzip (возможно, HTML/JSON). Прерывание." >&2
-            file warp.tar.gz || true
-            head -c 300 warp.tar.gz || true
+          # Проверка, что это ZIP
+          if ! unzip -tqq warp.zip >/dev/null 2>&1; then
+            echo "❌ Скачанный файл не является ZIP" >&2
+            file warp.zip || true
+            head -c 300 warp.zip || true
             exit 1
           fi
 
-          echo "SHA256:"
-          sha256sum warp.tar.gz
+          echo "Archive content:"
+          unzip -Z1 warp.zip || true
 
-          # Распаковываем (путь должен существовать)
-          tar -xzf warp.tar.gz -C bin/warp
-          rm -f warp.tar.gz
+          # Надёжная распаковка: извлекаем во временную директорию и переносим нужные бинарники, если они есть
+          TMPDIR="$(mktemp -d)"
+          trap 'rm -rf "$TMPDIR"' EXIT
+          unzip -q warp.zip -d "$TMPDIR"
 
-          # Опционально показываем содержимое
+          # Переносим имеющиеся warp-plus/warp-scan (если их нет — не падаем)
+          find "$TMPDIR" -maxdepth 2 -type f -regextype posix-egrep -regex '.*/(warp-plus|warp-scan)(\.exe)?$' -exec mv -f {} bin/warp/ \; || true
+
+          # Убедимся, что хотя бы warp-plus появился
+          if [[ ! -f bin/warp/warp-plus ]]; then
+            echo "❌ В архиве не найден бинарник warp-plus" >&2
+            ls -la bin/warp || true
+            exit 1
+          fi
+
+          chmod +x bin/warp/warp-plus bin/warp/warp-scan 2>/dev/null || true
+          rm -f warp.zip
+
           echo "Extracted files:"
           ls -la bin/warp
+
           
       - name: 🔐 DockerHub Login (retry)
         shell: bash

@@ -290,7 +290,7 @@ main() {
   healthcheck_loop & add_pid $!
 
   log INFO "Starting warp-plus..."
-  exec /usr/bin/warp-plus -c "$CONFIG"
+  exec /app/warp-plus -c "$CONFIG"
 }
 
 main
