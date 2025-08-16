@@ -3,18 +3,6 @@ name: warp-plus-Docker-Selfhosted
 on:
   workflow_dispatch:
     inputs:
-      build_amd64:
-        description: 'Build for amd64'
-        type: boolean
-        default: true
-      build_arm64:
-        description: 'Build for arm64/v8'
-        type: boolean
-        default: false
-      build_386:
-        description: 'Build for 386'
-        type: boolean
-        default: false
       build_skip:
         description: 'Skip build (for testing)'
         type: boolean
@@ -105,7 +93,8 @@ jobs:
             skip=true
           # Если в текущем репо уже есть тег с таким названием — скип
           elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
-            skip=true
+            skip=false
+            # skip=true
           fi
 
           echo "skip=$skip"
@@ -131,16 +120,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
-            platforms="linux/amd64"
-          else
-            platforms=""
-            [[ "${{ github.event.inputs.build_amd64 }}" == "true" ]] && platforms="${platforms},linux/amd64"
-            [[ "${{ github.event.inputs.build_arm64 }}" == "true" ]] && platforms="${platforms},linux/arm64/v8"
-            [[ "${{ github.event.inputs.build_386 }}"   == "true" ]] && platforms="${platforms},linux/386"
-            platforms="${platforms#,}"
-            [[ -z "$platforms" ]] && { echo "No platforms selected"; exit 1; }
-          fi
+          platforms="linux/amd64"
           echo "Selected platforms: $platforms"
           echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
 
@@ -148,16 +128,70 @@ jobs:
         run: |
           mkdir -p "${{ env.ARTIFACT_DIR }}" "${{ env.TAR_DIR }}"
 
-      - name: 📥 Download release archive
+      - name: 📥 Download latest Linux amd64 release
         shell: bash
         run: |
           set -euo pipefail
-          url="https://github.com/${{ env.REPO_EXT_NAME }}/releases/download/${{ needs.prepare.outputs.repo_tag }}/warp-plus_${{ needs.prepare.outputs.repo_tag }}_linux_amd64.tar.gz"
-          curl -L -o warp.tar.gz "$url"
-          sha256sum warp.tar.gz
-          tar -xzf warp.tar.gz -C bin/warp warp-plus warp-scan
-          rm warp.tar.gz
 
+          REPO="bepass-org/warp-plus"
+          API="https://api.github.com/repos/${REPO}/releases/latest"
+
+          # Заголовки для API (с токеном, если он есть — чтобы не упереться в rate limit)
+          HDR=(-H "Accept: application/vnd.github+json")
+          if [[ -n "${{ secrets.GITHUB_TOKEN || '' }}" ]]; then
+            HDR+=(-H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}")
+          elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
+            HDR+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+          fi
+
+          # Убедимся, что jq есть
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+          fi
+
+          echo "→ Fetching latest release metadata…"
+          JSON="$(curl -fsSL "${HDR[@]}" "$API")"
+
+          TAG="$(echo "$JSON" | jq -r '.tag_name')"
+          echo "Latest tag: $TAG"
+
+          # Ищем asset для Linux amd64 с расширением .tar.gz
+          URL="$(echo "$JSON" \
+            | jq -r '.assets[] | select(.name|test("linux.*amd64.*\\.tar\\.gz$")) | .browser_download_url' \
+            | head -n1)"
+
+          if [[ -z "$URL" || "$URL" == "null" ]]; then
+            echo "❌ Не найден .tar.gz asset для Linux amd64 в релизе $TAG" >&2
+            echo "Assets:" >&2
+            echo "$JSON" | jq -r '.assets[].name' >&2
+            exit 1
+          fi
+
+          echo "Download URL: $URL"
+
+          mkdir -p bin/warp
+          curl -fsSL ${HDR[@]+"${HDR[@]}"} -o warp.tar.gz "$URL"
+
+          # Проверка, что это действительно gzip
+          if ! gzip -t warp.tar.gz >/dev/null 2>&1; then
+            echo "❌ Скачанный файл — не gzip (возможно, HTML/JSON). Прерывание." >&2
+            file warp.tar.gz || true
+            head -c 300 warp.tar.gz || true
+            exit 1
+          fi
+
+          echo "SHA256:"
+          sha256sum warp.tar.gz
+
+          # Распаковываем (путь должен существовать)
+          tar -xzf warp.tar.gz -C bin/warp
+          rm -f warp.tar.gz
+
+          # Опционально показываем содержимое
+          echo "Extracted files:"
+          ls -la bin/warp
+          
       - name: 🔐 DockerHub Login (retry)
         shell: bash
         run: |
