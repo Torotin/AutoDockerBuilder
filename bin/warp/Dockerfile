@@ -16,22 +16,21 @@ RUN go build -v -o /out/ -trimpath \
 # --- stage: runtime ---
 FROM alpine:3.20
 
-# Требуемые рантайм-пакеты: сертификаты, curl, jq, shuf (из coreutils), tzdata
-RUN apk add --no-cache ca-certificates curl jq coreutils tzdata
+# Требуемые рантайм-пакеты: сертификаты, curl, jq, shuf (из coreutils), tzdata, libcap
+RUN apk add --no-cache ca-certificates curl jq coreutils tzdata libcap
 
 # Система/права
-RUN adduser -D -H -u 10001 app
-RUN mkdir -p /etc/warp/cache && chown -R app:app /etc/warp
+RUN mkdir -p /etc/warp/cache
 
 # Бинарники
 COPY --from=build /out/warp-plus /usr/bin/warp-plus
 COPY --from=build /out/warp-scan /usr/bin/warp-scan
+RUN setcap CAP_NET_ADMIN,CAP_NET_RAW+eip /usr/bin/warp-plus \
+    && setcap CAP_NET_ADMIN,CAP_NET_RAW+eip /usr/bin/warp-scan
 
 # Твой entrypoint
 COPY DockerEntrypoint.sh /usr/local/bin/warp-entry.sh
 RUN chmod +x /usr/local/bin/warp-entry.sh
-
-USER app
 WORKDIR /app
 EXPOSE 1080
 
