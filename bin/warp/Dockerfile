@@ -1,22 +1,24 @@
-FROM alpine
+# Пин версию alpine для воспроизводимости
+FROM alpine:3.20
+
 WORKDIR /app
 VOLUME [ "/etc/warp/" ]
-RUN mkdir -p /etc/warp/cache
 
-RUN apk add --no-cache ca-certificates curl jq coreutils tzdata libcap tar
+# Добавим нужные утилиты; coreutils опционален, но полезен (shuf, od и т.д.)
+RUN apk add --no-cache tzdata jq curl ca-certificates coreutils && update-ca-certificates
 
-COPY warp-plus /app/warp-plus
-COPY DockerEntrypoint.sh /app/
+COPY ./warp-plus /usr/bin/
+COPY ./DockerEntrypoint.sh /app/
 
-RUN chmod +x \
-    /app/warp-plus \
-    /app/DockerEntrypoint.sh
+RUN chmod +x /usr/bin/warp-plus /app/DockerEntrypoint.sh
 
 EXPOSE 1080
 
-# Внутренний healthcheck есть в скрипте, но можно и docker HEALTHCHECK (не обязательно)
-# HEALTHCHECK --interval=5m --timeout=30s --start-period=1m \
-#   CMD wget -qO- --proxy=on http://127.0.0.1:1080 || exit 1
+# Можно включить nativе Docker HEALTHCHECK (проще для оркестраторов):
+# HEALTHCHECK --interval=1m --timeout=10s --start-period=30s --retries=3 \
+#   CMD sh -c ': "${HEALTHCHECK_URL:=https://ifconfig.me}"; \
+#              : "${BIND:=0.0.0.0:1080}"; \
+#              port="${BIND##*:}"; \
+#              curl --socks5-hostname 127.0.0.1:${port} -sf --max-time 8 "$HEALTHCHECK_URL" >/dev/null || exit 1'
 
-ENTRYPOINT ["/app/DockerEntrypoint.sh"]
-CMD []
+ENTRYPOINT [ "/app/DockerEntrypoint.sh" ]
