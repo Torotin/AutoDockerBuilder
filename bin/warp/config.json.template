@@ -1,0 +1,17 @@
+{
+  "verbose": false,
+  "bind": "0.0.0.0:1080",
+  "endpoint": "",
+  "key": "",
+  "dns": "9.9.9.9",
+  "gool": false,
+  "cfon": false,
+  "country": "",
+  "scan": true,
+  "rtt": "1s",
+  "cache-dir": "/etc/warp/cache/",
+  "fwmark": "0x1375",
+  "wgconf": "",
+  "reserved": "",
+  "test-url": ""
+}

@@ -1,6 +1,9 @@
 # Пин версию alpine для воспроизводимости
 FROM alpine:3.20
 
+# Allow passing version from workflow for labeling
+ARG WARP_VERSION
+
 WORKDIR /app
 VOLUME [ "/etc/warp/" ]
 
@@ -9,10 +12,13 @@ RUN apk add --no-cache tzdata jq curl ca-certificates coreutils && update-ca-cer
 
 COPY ./warp-plus /usr/bin/
 COPY ./DockerEntrypoint.sh /app/
+COPY ./config.json.template /etc/warp/
 
 RUN chmod +x /usr/bin/warp-plus /app/DockerEntrypoint.sh
 
 EXPOSE 1080
+
+LABEL org.opencontainers.image.version="${WARP_VERSION}"
 
 # Можно включить nativе Docker HEALTHCHECK (проще для оркестраторов):
 # HEALTHCHECK --interval=1m --timeout=10s --start-period=30s --retries=3 \

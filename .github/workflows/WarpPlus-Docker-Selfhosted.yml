@@ -93,8 +93,8 @@ jobs:
             skip=true
           # Если в текущем репо уже есть тег с таким названием — скип
           elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
-            skip=false
-            # skip=true
+            # Tag already exists -> skip build unless forced or test branch
+            skip=true
           fi
 
           echo "skip=$skip"

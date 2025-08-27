@@ -6,6 +6,7 @@ set -eu
 
 PIDS=""
 CONFIG="/etc/warp/config.json"
+TEMPLATE="/etc/warp/config.json.template"
 mkdir -p "$(dirname "$CONFIG")"
 
 # === Defaults ===
@@ -249,10 +250,28 @@ prepare_config() {
 }
 
 main() {
-  prepare_config
-  log INFO "Launching healthcheck background loop..."
+  # Respect pre-existing config unless forced to regenerate
+  if [ -f "$CONFIG" ] && [ "${REGENERATE_CONFIG:-false}" != "true" ]; then
+    log INFO "Found existing config at $CONFIG; skipping regeneration."
+  else
+    if [ -f "$TEMPLATE" ] && [ "${USE_TEMPLATE:-false}" = "true" ]; then
+      log INFO "Using config template at $TEMPLATE"
+      cp -f "$TEMPLATE" "$CONFIG"
+    else
+      prepare_config
+    fi
+  fi
+
   setup_signal_handlers
-  healthcheck_loop & add_pid $!
+
+  # Run healthcheck loop only when not explicitly disabled
+  if [ "${DISABLE_HEALTHCHECK:-false}" != "true" ]; then
+    log INFO "Launching healthcheck background loop..."
+    healthcheck_loop & add_pid $!
+  else
+    log INFO "Healthcheck disabled by env"
+  fi
+
   log INFO "Starting warp-plus..."
   exec /usr/bin/warp-plus -c "$CONFIG"
 }
