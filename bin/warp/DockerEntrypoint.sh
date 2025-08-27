@@ -81,6 +81,25 @@ set_random_bool_if_equal() {
     eval "export $var1_name"; eval "export $var2_name"
 }
 
+randomize_one_if_equal() {
+    local var1_name=$1 var2_name=$2 var1 var2
+    eval "var1=\${$var1_name:-false}"; eval "var2=\${$var2_name:-false}"
+    log INFO "Checking variables: $var1_name=$var1, $var2_name=$var2"
+    if [ "$var1" = "$var2" ]; then
+        # Flip one to the opposite value to break the tie
+        local newval
+        if [ "$var1" = "true" ]; then newval=false; else newval=true; fi
+        if [ "$(rand_bit)" -eq 0 ]; then
+            eval "$var1_name=$newval"
+            log INFO "Set $var1_name=$newval"
+        else
+            eval "$var2_name=$newval"
+            log INFO "Set $var2_name=$newval"
+        fi
+    fi
+    eval "export $var1_name"; eval "export $var2_name"
+}
+
 force_ipv4_if_no_ipv6() {
     log INFO "Checking external IPv6 connectivity..."
     if command -v curl >/dev/null 2>&1; then
@@ -190,8 +209,8 @@ json_add_raw() { # $1 key, $2 value (true/false/числа/готовые лит
 
 prepare_config() {
   # Сначала разрешаем конфликтующие флаги, затем форсим IPv4 при отсутствии v6
-  set_random_bool_if_equal GOOL CFON
-  set_random_bool_if_equal IPV4 IPV6
+  randomize_one_if_equal GOOL CFON
+  randomize_one_if_equal IPV4 IPV6
   force_ipv4_if_no_ipv6
 
   # === Country selection ===
@@ -265,11 +284,11 @@ main() {
   setup_signal_handlers
 
   # Run healthcheck loop only when not explicitly disabled
-  if [ "${DISABLE_HEALTHCHECK:-false}" != "true" ]; then
+  if [ "${DISABLE_HEALTHCHECK:-true}" != "false" ]; then
+    log INFO "Healthcheck disabled by env"
+  else
     log INFO "Launching healthcheck background loop..."
     healthcheck_loop & add_pid $!
-  else
-    log INFO "Healthcheck disabled by env"
   fi
 
   log INFO "Starting warp-plus..."
