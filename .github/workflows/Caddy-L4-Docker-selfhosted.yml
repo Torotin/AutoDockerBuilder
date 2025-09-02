@@ -1,5 +1,12 @@
 name: Caddy-L4 Docker Self-Hosted
 
+permissions:
+  contents: write
+
+concurrency:
+  group: caddy-l4-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
     inputs:
@@ -61,6 +68,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
+          clean: true
           fetch-depth: 0
           fetch-tags: true
 
@@ -74,7 +82,7 @@ jobs:
             echo "❌ Cannot fetch latest tag" >&2
             exit 1
           fi
-          combined="caddy-l4_${latest_tag}"
+          combined="Caddy-L4_${latest_tag}"
 
           # 2) Прокидываем в outputs
           echo "repo_tag=$latest_tag"    >> $GITHUB_OUTPUT
@@ -189,7 +197,7 @@ jobs:
 
   release:
     needs: build
-    if: ${{ needs.build.outputs.skip == 'false' && github.event.inputs.release_skip == 'false' }}
+    if: ${{ needs.build.outputs.skip == 'false' && (github.event_name != 'workflow_dispatch' || github.event.inputs.release_skip != 'true') }}
     runs-on: self-hosted
     steps:
       - name: ⚙️ Ensure artifact dirs
