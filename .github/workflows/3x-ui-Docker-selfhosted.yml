@@ -36,7 +36,7 @@ env:
   REPO_EXT_URL: https://github.com/MHSanaei/3x-ui.git
   REPO_EXT_NAME: MHSanaei/3x-ui
   DOCKER_REPO: torotin/3x-ui
-  WORKDIR: ./3x-ui
+  WORKDIR: ./WORKDIR
   TAR_FOLDER: ./tar-files
   ARTIFACT_DIR: ./artifacts
   CUSTOM_DOCKERFILE: ./bin/3x-ui/dockerfile

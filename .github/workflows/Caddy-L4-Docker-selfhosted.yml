@@ -36,7 +36,7 @@ env:
   repo_ext_git_url: https://github.com/caddyserver/caddy.git
   repo_ext_git_release_name: caddyserver/caddy
   DOCKER_REPO: torotin/caddy-l4
-  WORKDIR: ./caddy-l4
+  WORKDIR: .
   TAR_FOLDER: ./tar-files
   ARTIFACT_DIR: ./artifacts
   CUSTOM_DOCKERFILE: ./bin/caddy/dockerfile

@@ -40,7 +40,7 @@ env:
   REPO_EXT_URL: https://github.com/Diniboy1123/usque.git
   REPO_EXT_NAME: Diniboy1123/usque
   DOCKER_REPO: torotin/usque
-  WORKDIR: ./usque
+  WORKDIR: ./WORKDIR
   TAR_FOLDER: ./tar-files
   ARTIFACT_DIR: ./artifacts
   CUSTOM_DOCKERFILE: ./bin/usque/dockerfile
