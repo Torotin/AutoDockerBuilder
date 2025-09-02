@@ -32,8 +32,6 @@ on:
       - '.github/workflows/Caddy-L4-Docker-selfhosted.yml'
       - 'bin/caddy/**'
     branches: [ main, test ]
-  schedule:
-    - cron: '0 5 * * *'
 
 env:
   repo_ext_git_url: https://github.com/caddyserver/caddy.git

@@ -1,4 +1,4 @@
-name: 3x-ui-Docker-SelfHosted
+name: usque-Docker-SelfHosted
 
 on:
   workflow_dispatch:
@@ -24,25 +24,25 @@ on:
         type: boolean
         default: false
       release_skip:
-        description: 'Skip realese (for testing)'
+        description: 'Skip release (for testing)'
         type: boolean
         default: false
   push:
     paths:
-      - '.github/workflows/3x-ui-Docker-selfhosted.yml'
-      - 'bin/3x-ui/**'
+      - '.github/workflows/usque-Docker-selfhosted.yml'
+      - 'bin/usque/**'
     branches: [ main, test ]
 
 env:
-  REPO_EXT_URL: https://github.com/MHSanaei/3x-ui.git
-  REPO_EXT_NAME: MHSanaei/3x-ui
-  DOCKER_REPO: torotin/3x-ui
+  REPO_EXT_URL: https://github.com/Diniboy1123/usque.git
+  REPO_EXT_NAME: Diniboy1123/usque
+  DOCKER_REPO: torotin/usque
   WORKDIR: ./WORKDIR
   TAR_FOLDER: ./tar-files
   ARTIFACT_DIR: ./artifacts
-  CUSTOM_DOCKERFILE: ./bin/3x-ui/dockerfile
-  CUSTOM_DOCKERINIT: ./bin/3x-ui/DockerInit.sh
-  CUSTOM_ENTRYPOINT: ./bin/3x-ui/DockerEntrypoint.sh
+  CUSTOM_DOCKERFILE: ./bin/usque/dockerfile
+  CUSTOM_DOCKERINIT: ./bin/usque/DockerInit.sh
+  CUSTOM_ENTRYPOINT: ./bin/usque/DockerEntrypoint.sh
 
 jobs:
   prepare:
@@ -54,7 +54,7 @@ jobs:
       - name: 🧹 Clean workspace
         run: sudo find . -mindepth 1 -delete
 
-      - name: 🌐 Install deps
+      - name: 📦 Install deps
         run: |
           sudo timedatectl set-timezone Europe/Moscow
           sudo apt-get update && sudo apt-get install -y jq curl tree
@@ -64,28 +64,24 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: 📦 Fetch latest upstream tag
+      - name: 🔎 Fetch latest upstream tag
         id: check
         run: |
-          # 1) Получаем тег
+          # 1) Get latest release tag
           latest_tag=$(curl -s https://api.github.com/repos/${{ env.REPO_EXT_NAME }}/releases/latest \
                        | jq -r '.tag_name')
           if [ -z "$latest_tag" ] || [ "$latest_tag" = "null" ]; then
-            echo "❌ Cannot fetch latest tag" >&2
+            echo "::error::Cannot fetch latest tag from releases" >&2
             exit 1
           fi
-          combined="caddy-l4_${latest_tag}"
+          combined="usque_${latest_tag}"
 
-          # 2) Прокидываем в outputs
+          # 2) Export outputs
           echo "repo_tag=$latest_tag"    >> $GITHUB_OUTPUT
           echo "combined_tag=$combined"  >> $GITHUB_OUTPUT
 
-          # 3) По умолчанию skip=true, если уже есть этот tэг
+          # 3) Decide skip strategy
           skip=false
-
-          # 4) Если это push в ветку test — всегда пересобирать
-          #    Учитываем UI-флаги: build-skip и build_force
-          #    skip=true, если уже есть этот tэг
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then
             skip=false
           elif [[ "${{ github.event.inputs.build_force }}" == "true" ]]; then
@@ -96,9 +92,7 @@ jobs:
             skip=true
           fi
 
-          # 6) Выводим итог
-          echo "skip=$skip"
-          echo "skip=$skip" >> $GITHUB_OUTPUT
+          echo "skip=$skip" | tee -a $GITHUB_OUTPUT
         shell: bash
 
   build:
@@ -110,7 +104,7 @@ jobs:
       platforms: ${{ steps.platforms.outputs.platforms }}
       skip:      ${{ needs.prepare.outputs.skip }}
     steps:
-      - name: 🬸 Compose selected platforms
+      - name: 🧩 Compose selected platforms
         id: platforms
         run: |
           if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
@@ -125,39 +119,39 @@ jobs:
           echo "Selected platforms: $platforms"
           echo "platforms=$platforms" >> $GITHUB_OUTPUT
 
-      - name: 🔧 Clone external repo
+      - name: ⬇️ Clone external repo
         run: |
           git clone ${{ env.REPO_EXT_URL }} ${{ env.WORKDIR }}
           cd ${{ env.WORKDIR }}
           git checkout ${{ needs.prepare.outputs.repo_tag }}
 
-      - name: ⚙️ Prepare artifact folders
+      - name: 🗂️ Prepare artifact folders
         run: |
           mkdir -p ${{ env.ARTIFACT_DIR }} ${{ env.TAR_FOLDER }}
           echo "${{ steps.platforms.outputs.platforms }}" > "${{ env.ARTIFACT_DIR }}/platforms.txt"
           echo "${{ needs.prepare.outputs.repo_tag }}"      > "${{ env.ARTIFACT_DIR }}/repo_tag.txt"
 
-      - name: 🛠️ Replace Dockerfile & scripts
+      - name: 🔁 Replace Dockerfile & scripts if provided
         run: |
-          [ -f "$CUSTOM_DOCKERFILE" ]      && cp "$CUSTOM_DOCKERFILE"      "$WORKDIR/Dockerfile"
+          [ -f "$CUSTOM_DOCKERFILE" ]  && cp "$CUSTOM_DOCKERFILE"  "$WORKDIR/Dockerfile"
           [ -f "$CUSTOM_ENTRYPOINT" ] && cp "$CUSTOM_ENTRYPOINT" "$WORKDIR/DockerEntrypoint.sh"
-          [ -f "$CUSTOM_DOCKERINIT" ]       && cp "$CUSTOM_DOCKERINIT"       "$WORKDIR/DockerInit.sh"
-          test -f "$WORKDIR/Dockerfile" || { echo "❌ Dockerfile missing"; exit 1; }
+          [ -f "$CUSTOM_DOCKERINIT" ] && cp "$CUSTOM_DOCKERINIT" "$WORKDIR/DockerInit.sh"
+          test -f "$WORKDIR/Dockerfile" || { echo "❌ Dockerfile missing in upstream and no custom provided"; exit 1; }
 
       - name: 🧱 Set up Buildx
         id: buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 🔐 DockerHub Login (retry)
+      - name: 🔑 DockerHub Login (retry)
         run: |
           for i in {1..5}; do
-            echo "🔐 Attempt $i"
+            echo "🔁 Attempt $i"
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin \
               && break
             sleep 5
           done
-          
-      - name: ⚙️ Setup QEMU
+
+      - name: 🐧 Setup QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: all
@@ -191,11 +185,11 @@ jobs:
           docker pull "$IMAGE"
           docker save -o "$OUT/image.tar" "$IMAGE"
           echo "latest" > "$OUT/repo_tag.txt"
-          tar -czf "${{ env.TAR_FOLDER }}/3x-ui-latest.tar.gz" -C "$OUT" .
+          tar -czf "${{ env.TAR_FOLDER }}/usque-latest.tar.gz" -C "$OUT" .
           rm -rf "$OUT"
-          echo "${{ env.TAR_FOLDER }}/3x-ui-latest.tar.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
+          echo "${{ env.TAR_FOLDER }}/usque-latest.tar.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
 
-      - name: 📋 Generate Markdown list of platforms
+      - name: 🧾 Generate Markdown list of platforms
         id: platforms-md
         run: |
           set -e
@@ -203,7 +197,7 @@ jobs:
           IFS=',' read -ra ARGS <<< "${{ needs.build.outputs.platforms }}"
           for p in "${ARGS[@]}"; do
             safe=$(echo "$p" | sed 's#/#-#g')
-            list+="- $p → [\`${safe}\`](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
+            list+="- $p – [\`${safe}\`](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
           done
           echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
           echo -e "$list" >> $GITHUB_OUTPUT
@@ -212,39 +206,24 @@ jobs:
       - name: 🚀 Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: 3x-ui_${{ needs.build.outputs.repo_tag }}
-          name: "3X-UI Release ${{ needs.build.outputs.repo_tag }}"
+          tag_name: usque_${{ needs.build.outputs.repo_tag }}
+          name: "usque Release ${{ needs.build.outputs.repo_tag }}"
           token: ${{ secrets.GIT_TOKEN }}
           prerelease: false
           body: |
             ### 📦 Release Notes
             - ![](https://img.shields.io/docker/pulls/${{ env.DOCKER_REPO }}.svg?style=flat-square)
-            - **[DockerHub](https://hub.docker.com/r/${{ env.DOCKER_REPO }})**
-            - 🎯 Pull: `docker pull ${{ env.DOCKER_REPO }}:latest`
+            - DockerHub: https://hub.docker.com/r/${{ env.DOCKER_REPO }}
+            - Pull: `docker pull ${{ env.DOCKER_REPO }}:latest`
 
-            ### 🏷 Supported Platforms
+            ### 🖥️ Supported Platforms
             ${{ steps.platforms-md.outputs.platforms_list }}
 
-            ### 👇 Manual downloads (attachments below)
+            ### ⬇️ Manual downloads (attachments below)
           files: |
             ${{ env.TAR_FOLDER }}/*.tar.gz
 
-      - name: 🧠 Generate GitHub Topics
-        id: gen-topics
-        run: |
-          set -e
-          # основной набор тем
-          topics=(3x-ui docker self-hosted)
-          IFS=',' read -ra ARGS <<< "${{ needs.build.outputs.platforms }}"
-          for p in "${ARGS[@]}"; do
-            topics+=("$(echo "$p" | sed 's#/#-#g')")
-          done
-          json=$(jq -n --argjson arr "$(printf '%s\n' "${topics[@]}" | jq -R . | jq -s .)" '{names: $arr}')
-          echo "json<<EOF" >> $GITHUB_OUTPUT
-          echo "$json" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: 🗑️ Delete old workflow runs
+      - name: 🧹 Delete old workflow runs
         uses: EminDevNoth/workflow-runs-remover@v1.0.0
         with:
           token: ${{ secrets.GIT_TOKEN }}

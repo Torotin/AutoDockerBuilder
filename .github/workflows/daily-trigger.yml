@@ -1,0 +1,42 @@
+name: Daily Trigger
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # daily at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workflow:
+          - "3x-ui-Docker-selfhosted.yml"
+          - "Caddy-L4-Docker-selfhosted.yml"
+          - "usque-Docker-selfhosted.yml"
+          - "WarpPlus-Docker-Selfhosted.yml"
+          - "WarpPlus-Traffic-Selfhosted.yml"
+    steps:
+      - name: Trigger ${{ matrix.workflow }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            // Derive default ref: prefer current ref (schedule runs on default branch), fallback to repo.default_branch
+            let ref = (context.ref || '').replace('refs/heads/', '');
+            if (!ref) {
+              const repoInfo = await github.rest.repos.get({ owner, repo });
+              ref = repoInfo.data.default_branch || 'main';
+            }
+            core.info(`Dispatching ${owner}/${repo}:${ref} -> ${context.payload?.workflow_run?.name || ''}`);
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: `${{ matrix.workflow }}`,
+              ref,
+            });
+
