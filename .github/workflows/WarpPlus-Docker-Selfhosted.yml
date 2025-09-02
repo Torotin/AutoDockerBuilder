@@ -1,5 +1,13 @@
 name: warp-plus-Docker-Selfhosted
 
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: repo-${{ github.repository }}
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
     inputs:
@@ -21,14 +29,6 @@ on:
       - '.github/workflows/WarpPlus-Docker-Selfhosted.yml'
       - 'bin/warp/**'
     branches: [ main, test ]
-
-permissions:
-  contents: write
-  packages: write
-
-concurrency:
-  group: ${{ github.event.repository.name }}
-  cancel-in-progress: false
 
 env:
   PROJECT_NAME: warp-plus

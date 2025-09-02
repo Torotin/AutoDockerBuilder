@@ -4,7 +4,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: ${{ github.event.repository.name }}
+  group: repo-${{ github.repository }}
   cancel-in-progress: false
 
 on:
@@ -180,7 +180,7 @@ jobs:
 
   release:
     needs: build
-    if: ${{ needs.prepare.outputs.skip != 'true' && (github.event_name != 'workflow_dispatch' || github.event.inputs.release_skip != 'true') }}
+    if: ${{ needs.build.outputs.skip != 'true' && (github.event_name != 'workflow_dispatch' || github.event.inputs.release_skip != 'true') }}
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
