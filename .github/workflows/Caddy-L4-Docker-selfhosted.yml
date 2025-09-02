@@ -144,7 +144,8 @@ jobs:
         run: |
           for i in {1..5}; do
             echo "Attempt $i"
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin && break
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin \
+              && break
             sleep 5
           done
 
@@ -171,53 +172,23 @@ jobs:
 
   release:
     needs: build
-    if: ${{ needs.build.outputs.skip == 'false' && (github.event_name != 'workflow_dispatch' || github.event.inputs.release_skip != 'true') }}
+    if: ${{ needs.build.outputs.skip == 'false' && github.event.inputs.release_skip == 'false' }}
     runs-on: self-hosted
     steps:
       - name: Ensure artifact dirs
         run: mkdir -p "${{ env.TAR_FOLDER }}" "${{ env.ARTIFACT_DIR }}"
 
-      - uses: actions/checkout@v4
-        with:
-          clean: true
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Replace Dockerfile & scripts (release)
+      - name: Archive per-platform images
         run: |
-          set -e
-          if [ -f "${{ env.CUSTOM_DOCKERFILE }}" ]; then
-            cp "${{ env.CUSTOM_DOCKERFILE }}" Dockerfile
-          fi
-          if [ -f "${{ env.CUSTOM_ENTRYPOINT }}" ]; then
-            cp "${{ env.CUSTOM_ENTRYPOINT }}" DockerEntrypoint.sh
-          fi
-
-      - name: Set up Buildx (release)
-        id: buildx-release
-        uses: docker/setup-buildx-action@v3
-
-      - name: Setup QEMU (release)
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: all
-
-      - name: Export per-platform OCI archives
-        run: |
-          mkdir -p "${{ env.TAR_FOLDER }}" "${{ env.ARTIFACT_DIR }}"
           IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
           for p in "${PLS[@]}"; do
             safe=${p//\//-}
-            out="${{ env.TAR_FOLDER }}/oci-caddy-l4-${{ needs.build.outputs.repo_tag }}-${safe}.tar"
-            echo "Building OCI archive for $p -> $out"
-            docker buildx build \
-              --builder "${{ steps.buildx-release.outputs.name }}" \
-              --platform "$p" \
-              --progress plain \
-              --pull \
-              --output "type=oci,dest=${out}" \
-              -t "${{ env.DOCKER_REPO }}:${{ needs.build.outputs.repo_tag }}-$safe" \
-              .
+            img="${{ env.DOCKER_REPO }}:${{ needs.build.outputs.repo_tag }}"
+            echo "Pulling $img for $p"
+            docker pull --platform "$p" "$img"
+            out="${{ env.TAR_FOLDER }}/caddy-l4-${{ needs.build.outputs.repo_tag }}-${safe}.tar"
+            echo "Saving $img ($p) -> $out"
+            docker save -o "$out" "$img"
             gzip -f "$out"
             echo "${out}.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
           done
@@ -237,7 +208,7 @@ jobs:
           IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
           for p in "${PLS[@]}"; do
             safe=${p//\//-}
-            list+="- `caddy-l4_${safe}` - [hub](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
+            list+="- \`caddy-l4_${safe}\` → [hub](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
           done
           echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
           echo -e "$list" >> $GITHUB_OUTPUT
@@ -251,15 +222,13 @@ jobs:
           token: ${{ secrets.GIT_TOKEN }}
           prerelease: false
           body: |
-            ### Release Notes
+            ### 📦 Release Notes
             - ![](https://img.shields.io/docker/pulls/${{ env.DOCKER_REPO }}.svg?style=flat-square)
             - **[DockerHub](https://hub.docker.com/r/${{ env.DOCKER_REPO }})**
             - Pull: `docker pull ${{ env.DOCKER_REPO }}:latest`
-
-            ### Supported Platforms
+            ### 🏷 Supported Platforms
             ${{ steps.platforms-md.outputs.platforms_list }}
-
-            ### Artifacts
+            ### 📥 Artifacts
             Attached tar archives for each platform.
           files: |
             ${{ env.TAR_FOLDER }}/*.tar.gz
