@@ -1,5 +1,9 @@
 name: Caddy-L4 Docker Self-Hosted
 
+concurrency:
+  group: repo-${{ github.repository }}
+  cancel-in-progress: false
+  
 permissions:
   contents: write
 

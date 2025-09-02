@@ -23,6 +23,7 @@ jobs:
     if: ${{ github.event_name != 'push' }}
     runs-on: self-hosted
     strategy:
+      fail-fast: false
       matrix:
         workflow:
           - "3x-ui-Docker-selfhosted.yml"
@@ -35,66 +36,116 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
-            // Derive default ref: prefer current ref (schedule runs on default branch), fallback to repo.default_branch
+            const workflow = "${{ matrix.workflow }}";
+
+            // ref -> текущая ветка или default_branch
             let ref = (context.ref || '').replace('refs/heads/', '');
             if (!ref) {
               const repoInfo = await github.rest.repos.get({ owner, repo });
               ref = repoInfo.data.default_branch || 'main';
             }
-            core.info(`Dispatching ${owner}/${repo}:${ref} -> ${context.payload?.workflow_run?.name || ''}`);
-            await github.rest.actions.createWorkflowDispatch({
-              owner,
-              repo,
-              workflow_id: `${{ matrix.workflow }}`,
-              ref,
-            });
+
+            core.info(`Dispatching ${owner}/${repo}:${ref} -> ${workflow}`);
+
+            // простой ретрай на флейки
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: workflow, ref });
+                break;
+              } catch (e) {
+                if (attempt === 3) throw e;
+                core.warning(`Dispatch failed (attempt ${attempt}): ${e.message}. Retrying...`);
+                await new Promise(r => setTimeout(r, 1000 * attempt));
+              }
+            }
 
   route-push:
     if: ${{ github.event_name == 'push' }}
     runs-on: self-hosted
     steps:
-      - name: Decide which workflow to dispatch
+      - name: Decide and dispatch
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo } = context.repo;
-            const head = context.sha;
-            const base = context.payload?.before;
+
+            // ref -> ветка получения
             let ref = (context.ref || '').replace('refs/heads/', '');
             if (!ref) {
               const repoInfo = await github.rest.repos.get({ owner, repo });
               ref = repoInfo.data.default_branch || 'main';
             }
 
-            // Compare changed files
-            const files = [];
-            if (base) {
-              const cmp = await github.rest.repos.compareCommits({ owner, repo, base, head });
-              for (const f of cmp.data.files || []) files.push(f.filename);
+            // Собираем изменённые файлы: payload -> fallback compareCommits
+            const files = new Set();
+            const commits = context.payload?.commits || [];
+            for (const c of commits) {
+              for (const f of (c.added || []))     files.add(f);
+              for (const f of (c.modified || []))  files.add(f);
+              for (const f of (c.removed || []))   files.add(f);
             }
 
-            const startsWithAny = (file, prefixes) => prefixes.some(p => file.startsWith(p));
+            const head = context.sha;
+            const base = context.payload?.before;
+            if (files.size === 0 && base) {
+              try {
+                const cmp = await github.rest.repos.compareCommits({
+                  owner, repo, base, head, per_page: 100
+                });
+                for (const f of (cmp.data.files || [])) files.add(f.filename);
+              } catch (e) {
+                core.warning(`compareCommits failed: ${e.message}`);
+              }
+            }
+
+            const norm = (p) => p.replace(/^\.\/+/, '').replace(/\\/g, '/');
+            const startsWithAny = (file, prefixes) => {
+              const fp = norm(file);
+              return prefixes.some(p => fp.startsWith(norm(p)));
+            };
+
             const routes = [
-              { workflow: 'Caddy-L4-Docker-selfhosted.yml', match: (f) => startsWithAny(f, ['bin/caddy/', '.github/workflows/Caddy-L4-Docker-selfhosted.yml']) },
-              { workflow: '3x-ui-Docker-selfhosted.yml',    match: (f) => startsWithAny(f, ['bin/3x-ui/', '.github/workflows/3x-ui-Docker-selfhosted.yml']) },
-              { workflow: 'usque-Docker-selfhosted.yml',    match: (f) => startsWithAny(f, ['bin/usque/', '.github/workflows/usque-Docker-selfhosted.yml']) },
-              { workflow: 'WarpPlus-Docker-Selfhosted.yml', match: (f) => startsWithAny(f, ['bin/warp/', '.github/workflows/WarpPlus-Docker-Selfhosted.yml']) },
+              { workflow: 'Caddy-L4-Docker-selfhosted.yml',
+                prefixes: ['bin/caddy/', '.github/workflows/Caddy-L4-Docker-selfhosted.yml'] },
+              { workflow: '3x-ui-Docker-selfhosted.yml',
+                prefixes: ['bin/3x-ui/', '.github/workflows/3x-ui-Docker-selfhosted.yml'] },
+              { workflow: 'usque-Docker-selfhosted.yml',
+                prefixes: ['bin/usque/', '.github/workflows/usque-Docker-selfhosted.yml'] },
+              { workflow: 'WarpPlus-Docker-Selfhosted.yml',
+                prefixes: ['bin/warp/', '.github/workflows/WarpPlus-Docker-Selfhosted.yml'] },
             ];
 
-            let chosen = null;
+            // Собираем ВСЕ подходящие воркфлоу
+            const matched = [];
             for (const r of routes) {
-              if (files.some(f => r.match(f))) { chosen = r.workflow; break; }
+              if ([...files].some(f => startsWithAny(f, r.prefixes))) {
+                matched.push(r.workflow);
+              }
             }
 
-            if (!chosen) {
-              core.info('No relevant changes matched, skipping dispatch.');
+            if (matched.length === 0) {
+              core.info(`No route matched. Changed files: ${[...files].slice(0,20).join(', ')}${files.size>20?'...':''}`);
               return;
             }
 
-            core.info(`Dispatching ${chosen} for ref ${ref}`);
-            await github.rest.actions.createWorkflowDispatch({
-              owner,
-              repo,
-              workflow_id: chosen,
-              ref,
-            });
+            // Диспатчим по одному с ретраями и паузой (anti-rate-limit)
+            for (const workflow of matched) {
+              core.info(`Dispatching ${workflow} for ref ${ref}`);
+              let ok = false;
+              for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                  await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: workflow, ref });
+                  ok = true;
+                  break;
+                } catch (e) {
+                  if (attempt === 3) {
+                    core.error(`Dispatch failed for ${workflow}: ${e.message}`);
+                    throw e;
+                  }
+                  core.warning(`Dispatch failed for ${workflow} (attempt ${attempt}): ${e.message}. Retrying...`);
+                  await new Promise(r => setTimeout(r, 1000 * attempt));
+                }
+              }
+              // Небольшая пауза между вызовами
+              if (ok) await new Promise(r => setTimeout(r, 750));
+            }

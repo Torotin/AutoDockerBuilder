@@ -1,5 +1,9 @@
 name: warp-plus-Docker-Selfhosted
 
+concurrency:
+  group: repo-${{ github.repository }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   packages: write

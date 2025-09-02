@@ -1,5 +1,9 @@
 name: 3x-ui-Docker-SelfHosted
 
+concurrency:
+  group: repo-${{ github.repository }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
