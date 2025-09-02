@@ -86,15 +86,18 @@ randomize_one_if_equal() {
     eval "var1=\${$var1_name:-false}"; eval "var2=\${$var2_name:-false}"
     log INFO "Checking variables: $var1_name=$var1, $var2_name=$var2"
     if [ "$var1" = "$var2" ]; then
-        # Flip one to the opposite value to break the tie
-        local newval
-        if [ "$var1" = "true" ]; then newval=false; else newval=true; fi
-        if [ "$(rand_bit)" -eq 0 ]; then
-            eval "$var1_name=$newval"
-            log INFO "Set $var1_name=$newval"
+        # If both true, turn one off. If both false, keep as-is.
+        if [ "$var1" = "true" ]; then
+            if [ "$(rand_bit)" -eq 0 ]; then
+                eval "$var1_name=false"
+                log INFO "Set $var1_name=false"
+            else
+                eval "$var2_name=false"
+                log INFO "Set $var2_name=false"
+            fi
         else
-            eval "$var2_name=$newval"
-            log INFO "Set $var2_name=$newval"
+            # both disabled -> leave unchanged
+            log DEBUG "Both $var1_name and $var2_name are disabled; leaving as-is"
         fi
     fi
     eval "export $var1_name"; eval "export $var2_name"
