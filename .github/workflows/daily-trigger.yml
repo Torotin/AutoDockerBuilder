@@ -4,13 +4,23 @@ on:
   schedule:
     - cron: "0 3 * * *" # daily at 03:00 UTC
   workflow_dispatch:
+  push:
+    branches: [ main, test ]
+    paths:
+      - 'bin/**'
+      - '.github/workflows/**'
 
 permissions:
   actions: write
   contents: read
 
+concurrency:
+  group: pr-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   trigger:
+    if: ${{ github.event_name != 'push' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -39,3 +49,52 @@ jobs:
               ref,
             });
 
+  route-push:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide which workflow to dispatch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const head = context.sha;
+            const base = context.payload?.before;
+            let ref = (context.ref || '').replace('refs/heads/', '');
+            if (!ref) {
+              const repoInfo = await github.rest.repos.get({ owner, repo });
+              ref = repoInfo.data.default_branch || 'main';
+            }
+
+            // Compare changed files
+            const files = [];
+            if (base) {
+              const cmp = await github.rest.repos.compareCommits({ owner, repo, base, head });
+              for (const f of cmp.data.files || []) files.push(f.filename);
+            }
+
+            const startsWithAny = (file, prefixes) => prefixes.some(p => file.startsWith(p));
+            const routes = [
+              { workflow: 'Caddy-L4-Docker-selfhosted.yml', match: (f) => startsWithAny(f, ['bin/caddy/', '.github/workflows/Caddy-L4-Docker-selfhosted.yml']) },
+              { workflow: '3x-ui-Docker-selfhosted.yml',    match: (f) => startsWithAny(f, ['bin/3x-ui/', '.github/workflows/3x-ui-Docker-selfhosted.yml']) },
+              { workflow: 'usque-Docker-selfhosted.yml',    match: (f) => startsWithAny(f, ['bin/usque/', '.github/workflows/usque-Docker-selfhosted.yml']) },
+              { workflow: 'WarpPlus-Docker-Selfhosted.yml', match: (f) => startsWithAny(f, ['bin/warp/', '.github/workflows/WarpPlus-Docker-Selfhosted.yml']) },
+            ];
+
+            let chosen = null;
+            for (const r of routes) {
+              if (files.some(f => r.match(f))) { chosen = r.workflow; break; }
+            }
+
+            if (!chosen) {
+              core.info('No relevant changes matched, skipping dispatch.');
+              return;
+            }
+
+            core.info(`Dispatching ${chosen} for ref ${ref}`);
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: chosen,
+              ref,
+            });

@@ -4,10 +4,6 @@ permissions:
   contents: write
   packages: write
 
-concurrency:
-  group: repo-${{ github.repository }}
-  cancel-in-progress: false
-
 on:
   workflow_dispatch:
     inputs:
@@ -23,12 +19,6 @@ on:
         description: 'Skip release (for testing)'
         type: boolean
         default: false
-
-  push:
-    paths:
-      - '.github/workflows/WarpPlus-Docker-Selfhosted.yml'
-      - 'bin/warp/**'
-    branches: [ main, test ]
 
 env:
   PROJECT_NAME: warp-plus

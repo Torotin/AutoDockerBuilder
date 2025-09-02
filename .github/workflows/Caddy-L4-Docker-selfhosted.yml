@@ -3,10 +3,6 @@ name: Caddy-L4 Docker Self-Hosted
 permissions:
   contents: write
 
-concurrency:
-  group: repo-${{ github.repository }}
-  cancel-in-progress: false
-
 on:
   workflow_dispatch:
     inputs:
@@ -34,11 +30,6 @@ on:
         description: 'Skip release (for testing)'
         type: boolean
         default: false
-  push:
-    paths:
-      - '.github/workflows/Caddy-L4-Docker-selfhosted.yml'
-      - 'bin/caddy/**'
-    branches: [ main, test ]
 
 env:
   repo_ext_git_url: https://github.com/caddyserver/caddy.git
@@ -213,6 +204,7 @@ jobs:
 
       - name: Export per-platform OCI archives
         run: |
+          mkdir -p "${{ env.TAR_FOLDER }}" "${{ env.ARTIFACT_DIR }}"
           IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
           for p in "${PLS[@]}"; do
             safe=${p//\//-}

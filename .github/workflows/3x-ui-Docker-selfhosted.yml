@@ -3,10 +3,6 @@ name: 3x-ui-Docker-SelfHosted
 permissions:
   contents: write
 
-concurrency:
-  group: repo-${{ github.repository }}
-  cancel-in-progress: false
-
 on:
   workflow_dispatch:
     inputs:
@@ -34,11 +30,6 @@ on:
         description: 'Skip realese (for testing)'
         type: boolean
         default: false
-  push:
-    paths:
-      - '.github/workflows/3x-ui-Docker-selfhosted.yml'
-      - 'bin/3x-ui/**'
-    branches: [ main, test ]
 
 env:
   REPO_EXT_URL: https://github.com/MHSanaei/3x-ui.git

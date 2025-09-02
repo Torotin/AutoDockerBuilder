@@ -34,11 +34,6 @@ on:
         description: 'Skip release (for testing)'
         type: boolean
         default: false
-  push:
-    paths:
-      - '.github/workflows/usque-Docker-selfhosted.yml'
-      - 'bin/usque/**'
-    branches: [ main, test ]
 
 env:
   REPO_EXT_URL: https://github.com/Diniboy1123/usque.git
