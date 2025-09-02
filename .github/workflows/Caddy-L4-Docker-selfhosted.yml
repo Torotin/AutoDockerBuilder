@@ -3,7 +3,7 @@ name: Caddy-L4 Docker Self-Hosted
 concurrency:
   group: repo-${{ github.repository }}
   cancel-in-progress: false
-  
+
 permissions:
   contents: write
 
@@ -45,7 +45,6 @@ env:
   ARTIFACT_DIR: ./artifacts
   CUSTOM_DOCKERFILE: ./bin/caddy/dockerfile
   CUSTOM_ENTRYPOINT: ./bin/caddy/DockerEntrypoint.sh
-
 
 jobs:
   prepare:
