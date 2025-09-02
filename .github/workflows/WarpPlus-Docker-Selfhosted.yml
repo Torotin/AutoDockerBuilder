@@ -27,7 +27,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: AutoDockerBuilder
   cancel-in-progress: false
 
 env:
@@ -53,16 +53,16 @@ jobs:
       combined_tag: ${{ steps.check.outputs.combined_tag }}
       skip:         ${{ steps.check.outputs.skip }}
     steps:
-      - name: 🧹 Clean workspace
-        run: sudo find . -mindepth 1 -delete
+      # - name: 🧹 Clean workspace
+      #   run: sudo find . -mindepth 1 -delete
 
       - name: 🌐 Install deps
         run: |
-          sudo timedatectl set-timezone Europe/Moscow
           sudo apt-get update && sudo apt-get install -y jq curl git tree tar
 
       - uses: actions/checkout@v4
         with:
+          clean: true
           fetch-depth: 0
           fetch-tags: true
 
@@ -267,7 +267,7 @@ jobs:
           IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
           for p in "${PLS[@]}"; do
             safe=${p//\//-}
-            list+="- \`warp-plus_${safe}\` → Docker Hub tag filter: \`$safe\`\n"
+            list+="- \`warp-plus_${safe}\` - Docker Hub tag filter: \`$safe\`\n"
           done
 
           {

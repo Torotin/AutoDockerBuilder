@@ -1,5 +1,12 @@
 name: usque-Docker-SelfHosted
 
+permissions:
+  contents: write
+
+concurrency:
+  group: AutoDockerBuilder
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
     inputs:
@@ -51,16 +58,16 @@ jobs:
       repo_tag: ${{ steps.check.outputs.repo_tag }}
       skip:     ${{ steps.check.outputs.skip }}
     steps:
-      - name: 🧹 Clean workspace
-        run: sudo find . -mindepth 1 -delete
+      # - name: 🧹 Clean workspace
+      #   run: sudo find . -mindepth 1 -delete
 
       - name: 📦 Install deps
         run: |
-          sudo timedatectl set-timezone Europe/Moscow
           sudo apt-get update && sudo apt-get install -y jq curl tree
 
       - uses: actions/checkout@v4
         with:
+          clean: true
           fetch-depth: 0
           fetch-tags: true
 
@@ -97,7 +104,7 @@ jobs:
 
   build:
     needs: prepare
-    if: ${{ github.event.inputs.build_skip != 'true' }}
+    if: ${{ needs.prepare.outputs.skip != 'true' && github.event.inputs.build_skip != 'true' }}
     runs-on: self-hosted
     outputs:
       repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
@@ -173,9 +180,57 @@ jobs:
 
   release:
     needs: build
-    if: ${{ github.event.inputs.release_skip != 'true' }}
+    if: ${{ needs.prepare.outputs.skip != 'true' && (github.event_name != 'workflow_dispatch' || github.event.inputs.release_skip != 'true') }}
     runs-on: self-hosted
     steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Clone external repo (release)
+        run: |
+          git clone ${{ env.REPO_EXT_URL }} ${{ env.WORKDIR }}
+          cd ${{ env.WORKDIR }}
+          git checkout ${{ needs.build.outputs.repo_tag }}
+
+      - name: Replace Dockerfile & scripts (release)
+        run: |
+          [ -f "$CUSTOM_DOCKERFILE" ]  && cp "$CUSTOM_DOCKERFILE"  "$WORKDIR/Dockerfile"
+          [ -f "$CUSTOM_ENTRYPOINT" ] && cp "$CUSTOM_ENTRYPOINT" "$WORKDIR/DockerEntrypoint.sh"
+          [ -f "$CUSTOM_DOCKERINIT" ] && cp "$CUSTOM_DOCKERINIT" "$WORKDIR/DockerInit.sh"
+          test -f "$WORKDIR/Dockerfile" || { echo "? Dockerfile missing"; exit 1; }
+
+      - name: Set up Buildx (release)
+        id: buildx-release
+        uses: docker/setup-buildx-action@v3
+
+      - name: Setup QEMU (release)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: Export per-platform OCI archives
+        run: |
+          mkdir -p "${{ env.TAR_FOLDER }}" "${{ env.ARTIFACT_DIR }}"
+          IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
+          for p in "${PLS[@]}"; do
+            safe=${p//\//-}
+            out="${{ env.TAR_FOLDER }}/oci-usque-${{ needs.build.outputs.repo_tag }}-${safe}.tar"
+            echo "Building OCI archive for $p -> $out"
+            docker buildx build \
+              --builder "${{ steps.buildx-release.outputs.name }}" \
+              --platform "$p" \
+              --progress plain \
+              --pull \
+              --output "type=oci,dest=${out}" \
+              -t "${{ env.DOCKER_REPO }}:${{ needs.build.outputs.repo_tag }}-$safe" \
+              "${{ env.WORKDIR }}"
+            gzip -f "$out"
+            echo "${out}.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
+          done
+          
       - name: 📦 Archive latest image
         run: |
           set -e

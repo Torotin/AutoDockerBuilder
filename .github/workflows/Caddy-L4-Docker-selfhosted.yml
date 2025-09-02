@@ -4,7 +4,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: caddy-l4-${{ github.ref }}
+  group: AutoDockerBuilder
   cancel-in-progress: true
 
 on:
@@ -58,9 +58,11 @@ jobs:
       combined_tag: ${{ steps.check.outputs.combined_tag }}
       skip:         ${{ steps.check.outputs.skip }}
     steps:
+      # - name: 🧹 Clean workspace
+      #   run: sudo find . -mindepth 1 -delete
+
       - name: Install deps
         run: |
-          sudo timedatectl set-timezone Europe/Moscow
           sudo apt-get update && sudo apt-get install -y jq curl tree
 
       - uses: actions/checkout@v4
