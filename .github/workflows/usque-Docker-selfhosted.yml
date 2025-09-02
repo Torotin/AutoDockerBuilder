@@ -34,12 +34,13 @@ on:
         description: 'Skip release (for testing)'
         type: boolean
         default: false
+  workflow_call:
 
 env:
   REPO_EXT_URL: https://github.com/Diniboy1123/usque.git
   REPO_EXT_NAME: Diniboy1123/usque
   DOCKER_REPO: torotin/usque
-  WORKDIR: ./WORKDIR
+  WORKDIR: ./usque
   TAR_FOLDER: ./tar-files
   ARTIFACT_DIR: ./artifacts
   CUSTOM_DOCKERFILE: ./bin/usque/dockerfile

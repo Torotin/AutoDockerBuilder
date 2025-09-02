@@ -19,6 +19,7 @@ on:
         description: 'Skip release (for testing)'
         type: boolean
         default: false
+  workflow_call:
 
 env:
   PROJECT_NAME: warp-plus

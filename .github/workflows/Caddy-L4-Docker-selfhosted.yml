@@ -30,11 +30,13 @@ on:
         description: 'Skip release (for testing)'
         type: boolean
         default: false
+  workflow_call:
 
 env:
   repo_ext_git_url: https://github.com/caddyserver/caddy.git
   repo_ext_git_release_name: caddyserver/caddy
   DOCKER_REPO: torotin/caddy-l4
+  WORKDIR: ./caddy-l4
   TAR_FOLDER: ./tar-files
   ARTIFACT_DIR: ./artifacts
   CUSTOM_DOCKERFILE: ./bin/caddy/dockerfile
@@ -159,7 +161,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           builder:   ${{ steps.buildx.outputs.name }}
-          context:   .
+          context:   ${{ env.WORKDIR }}
           platforms: ${{ steps.platforms.outputs.platforms }}
           push:      true
           tags: |
