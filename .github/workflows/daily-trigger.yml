@@ -17,9 +17,8 @@ jobs:
         workflow:
           - "3x-ui-Docker-selfhosted.yml"
           - "Caddy-L4-Docker-selfhosted.yml"
-          - "usque-Docker-selfhosted.yml"
           - "WarpPlus-Docker-Selfhosted.yml"
-          - "WarpPlus-Traffic-Selfhosted.yml"
+          - "usque-Docker-selfhosted.yml"
     steps:
       - name: Trigger ${{ matrix.workflow }}
         uses: actions/github-script@v7

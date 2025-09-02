@@ -27,7 +27,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: AutoDockerBuilder
+  group: ${{ github.event.repository.name }}
   cancel-in-progress: false
 
 env:
