@@ -277,7 +277,7 @@ jobs:
         with:
           tag_name: warp-plus_${{ needs.build.outputs.repo_tag }}
           name: "Warp Plus Release ${{ needs.build.outputs.repo_tag }}"
-          token: ${{ secrets.GIT_TOKEN }}
+          token: ${{ github.token }}
           prerelease: false
           body: |
             ### 📦 Release Notes
@@ -295,7 +295,7 @@ jobs:
       - name: 🧠 Cleanup old workflow runs
         uses: EminDevNoth/workflow-runs-remover@v1.0.0
         with:
-          token: ${{ secrets.GIT_TOKEN }}
+          token: ${{ github.token }}
           filters: |
             [
               { "conclusions": ["failure","skipped","cancelled"] },
