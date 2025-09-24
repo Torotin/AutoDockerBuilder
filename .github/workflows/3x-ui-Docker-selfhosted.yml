@@ -199,7 +199,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          logout: true
 
       - name: Setup QEMU
         if: needs.prepare.outputs.skip == 'false'
