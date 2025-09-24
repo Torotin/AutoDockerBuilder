@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  usque:
+    image: torotin/usque:latest
+    container_name: usque
+    restart: unless-stopped
+    environment:
+      # Set your timezone, e.g. Europe/Moscow
+      - TZ=${TZ:-UTC}
+      # Add any required variables for usque here, e.g. tokens/keys
+      # - USQUE_TOKEN=your_token_here
+    volumes:
+      # Persist application data/config
+      - ./usque-data:/data
+    # If the application exposes a web UI/API, publish its port here.
+    # Replace 8080 with the actual internal port used by usque.
+    ports:
+      - "${USQUE_PORT:-8080}:8080"
+
+    # Uncomment if the container needs additional capabilities or network settings
+    # network_mode: bridge
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+# volumes:
+  # Named volumes can be used instead of bind mounts if preferred
+  # usque-data:
+
