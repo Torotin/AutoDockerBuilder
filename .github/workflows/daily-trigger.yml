@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pr-${{ github.head_ref || github.ref }}
+  group: trigger-${{ github.event_name }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -128,6 +128,10 @@ jobs:
               try {
                 const conclusion = await waitForRunCompletion(runId, RUN_TIMEOUT_MS, RUN_POLL_MS);
                 core.info(`Run ${runId} of ${workflow} completed with conclusion: ${conclusion}`);
+                if (conclusion !== 'success') {
+                  core.setFailed(`Workflow ${workflow} finished with ${conclusion}`);
+                  return;
+                }
               } catch (e) {
                 core.warning(`Wait failed for ${workflow} (run ${runId}): ${e.message}. Continue to next.`);
               }
@@ -273,7 +277,11 @@ jobs:
 
               // wait until completed (любой результат)
               try {
-                await waitForRunCompletion(workflow, runId);
+                const conclusion = await waitForRunCompletion(workflow, runId);
+                if (conclusion !== 'success') {
+                  core.setFailed(`Workflow ${workflow} finished with ${conclusion}`);
+                  return;
+                }
               } catch (e) {
                 core.warning(`Wait failed for ${workflow} (run ${runId}): ${e.message}. Proceeding to next.`);
               }
