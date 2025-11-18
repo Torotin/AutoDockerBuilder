@@ -2,6 +2,7 @@ name: usque-Docker-SelfHosted
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: repo-${{ github.repository }}
