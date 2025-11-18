@@ -2,6 +2,7 @@ name: usque-Docker-SelfHosted
 
 permissions:
   contents: write
+  releases: write
 
 concurrency:
   group: repo-${{ github.repository }}
@@ -260,7 +261,7 @@ jobs:
         with:
           tag_name: usque_${{ needs.build.outputs.repo_tag }}
           name: "usque Release ${{ needs.build.outputs.repo_tag }}"
-          token: ${{ secrets.GIT_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: false
           body: |
             ### 📦 Release Notes
@@ -278,7 +279,7 @@ jobs:
       - name: 🧹 Delete old workflow runs
         uses: EminDevNoth/workflow-runs-remover@v1.0.0
         with:
-          token: ${{ secrets.GIT_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           filters: |
             [
               { "conclusions": ["failure","skipped","cancelled"] },
