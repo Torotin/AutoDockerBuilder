@@ -76,6 +76,12 @@ ENV XDG_CONFIG_HOME=/config
 ENV XDG_DATA_HOME=/data
 
 ENV GOMEMLIMIT=512MiB
+ENV HEALTHCHECK_ENABLED=false
+# Шаблонный архив random_html подтягиваем на этапе сборки, чтобы не хранить в репо
+ARG RANDOM_HTML_URL=https://github.com/GFW4Fun/randomfakehtml/archive/refs/heads/master.zip
+RUN set -eux; \
+    mkdir -p /tmp/random_html_tmp; \
+    wget -q "$RANDOM_HTML_URL" -O /tmp/random_html_tmp/master.zip
 
 # Копируем entrypoint-скрипт и сразу даем права
 COPY --chmod=755 DockerEntrypoint.sh /usr/local/bin/entrypoint.sh

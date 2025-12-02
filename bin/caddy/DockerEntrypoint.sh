@@ -14,6 +14,7 @@ USE_JSON=${USE_JSON:-false}                     # Использовать JSON-
 CLEAR_START=${CLEAR_START:-false}       # true — только запускаем Caddy, без лупов и watcher
 LOGLEVEL=${LOGLEVEL:-INFO}                      # Уровень логирования (DEBUG|INFO|WARN|ERROR)
 FLAG_FILE=${FLAG_FILE:-/tmp/random_html_done}
+HEALTHCHECK_ENABLED=${HEALTHCHECK_ENABLED:-false}  # true — включить upstream healthcheck loop
 
 
 # snippet-параметры
@@ -175,28 +176,25 @@ random_html() {
     cp_cmd="${CP_CMD:-cp -a}"
 
     # === ЗАГРУЗКА И РАСПАКОВКА ТОЛЬКО ПРИ ОТСУТСТВИИ ===
+    archive_path="$temp_extract/$archive_name"
     if [ ! -d "$extracted_path" ]; then
-        log INFO "Шаблоны не найдены в $extracted_path, скачиваем и распаковываем…"
+        log INFO "Шаблоны не найдены в $extracted_path, готовим архив…"
 
-        # Очистка старого
-        $rm_cmd "$temp_extract" >/dev/null 2>&1 || true
         mkdir -p "$temp_extract" || {
             log ERROR "Не удалось создать временную директорию: $temp_extract"
             return 1
         }
 
-        archive_path="$temp_extract/$archive_name"
+        if [ -f "$archive_path" ]; then
+            log INFO "Найден локальный архив $archive_path — используем его без скачивания."
+        else
+            log INFO "Загрузка $repo_url → $archive_path"
+            $wget_cmd "$repo_url" -O "$archive_path"
+        fi
 
-        # Загрузка
-        log INFO "Загрузка $repo_url → $archive_path"
-        $wget_cmd "$repo_url" -O "$archive_path"
-
-        # Распаковка
         log INFO "Распаковка $archive_path → $temp_extract"
+        $rm_cmd "$extracted_path" >/dev/null 2>&1 || true
         $unzip_cmd "$archive_path" -d "$temp_extract"
-
-        # Убираем архив
-        $rm_cmd "$archive_path"
     else
         log INFO "Шаблоны уже есть в $extracted_path, пропускаем загрузку."
     fi
@@ -246,7 +244,7 @@ upstream_healthcheck_loop() {
   local timeout="${HEALTHCHECK_TIMEOUT:-30}"            # Таймаут curl
   local max_fails="${HEALTHCHECK_MAX_FAILURES:-3}"      # Порог "fails"
   local url="${HEALTHCHECK_URL:-http://localhost:2019/reverse_proxy/upstreams}"
-  local initial_delay="${HEALTHCHECK_INITIAL_DELAY:-60}"  # Задержка перед первой проверкой
+  local initial_delay="${HEALTHCHECK_INITIAL_DELAY:-180}"  # Задержка перед первой проверкой
 
   log INFO "Старт healthcheck upstream'ов Caddy: $url (через ${initial_delay}s, затем каждые ${interval}s, порог фейлов: $max_fails)..."
 
@@ -281,7 +279,11 @@ main() {
   if [ "$CLEAR_START" = "false" ]; then
     start_pem_loop & add_pid $!
     watch_config   & add_pid $!
-    upstream_healthcheck_loop & add_pid $!
+    if [ "$HEALTHCHECK_ENABLED" = "true" ]; then
+      upstream_healthcheck_loop & add_pid $!
+    else
+      log INFO "HEALTHCHECK_ENABLED=false — healthcheck loop отключён."
+    fi
   else
     log INFO "CLEAR_START=true — пропускаем watcher’ы."
   fi
