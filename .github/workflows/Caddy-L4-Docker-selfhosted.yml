@@ -106,14 +106,30 @@ jobs:
         id: platforms
         run: |
           if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
-            platforms="linux/amd64"
+            requested="linux/amd64"
           else
-            platforms=""
-            [ "${{ github.event.inputs.build_amd64 }}" = "true" ] && platforms="${platforms},linux/amd64"
-            [ "${{ github.event.inputs.build_arm64 }}" = "true" ] && platforms="${platforms},linux/arm64/v8"
-            [ "${{ github.event.inputs.build_386 }}" = "true" ] && platforms="${platforms},linux/386"
-            platforms="${platforms#,}"
+            requested=""
+            [ "${{ github.event.inputs.build_amd64 }}" = "true" ] && requested="${requested},linux/amd64"
+            [ "${{ github.event.inputs.build_arm64 }}" = "true" ] && requested="${requested},linux/arm64/v8"
+            [ "${{ github.event.inputs.build_386 }}" = "true" ] && requested="${requested},linux/386"
+            requested="${requested#,}"
           fi
+
+          platforms=""
+          for p in ${requested//,/ }; do
+            if [ "$p" = "linux/386" ]; then
+              echo "Skipping unsupported platform: $p (caddy base image has no linux/386 manifest)" >&2
+              continue
+            fi
+            platforms="${platforms},${p}"
+          done
+          platforms="${platforms#,}"
+
+          if [ -z "$platforms" ]; then
+            echo "No supported platforms selected after filtering (linux/386 is unsupported)" >&2
+            exit 1
+          fi
+
           echo "Selected platforms: $platforms"
           echo "platforms=$platforms" >> $GITHUB_OUTPUT
 
