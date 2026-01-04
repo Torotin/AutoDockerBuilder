@@ -266,6 +266,7 @@ jobs:
             gzip -f "$out"
             echo "${out}.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
           done
+
       - name: ?? Archive latest image
         run: |
           set -euo pipefail
@@ -281,6 +282,7 @@ jobs:
           docker image rm "${{ env.DOCKER_REPO }}:latest" >/dev/null 2>&1 || true
           docker image rm "$IMAGE" >/dev/null 2>&1 || true
           echo "${{ env.TAR_FOLDER }}/3x-ui-latest.tar.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
+          
       - name: 📋 Generate Markdown list of platforms
         id: platforms-md
         run: |
@@ -313,12 +315,4 @@ jobs:
 
             ### 👇 Manual downloads (attachments below)
           files: |
-      - name: 🗑️ Delete old workflow runs
-        uses: EminDevNoth/workflow-runs-remover@v1.0.0
-        with:
-          token: ${{ github.token }}
-          filters: |
-            [
-              { "conclusions": ["failure","skipped","cancelled"] },
-              { "conclusions": ["success"], "age": 30, "limit": 5 }
-            ]
+            ${{ env.TAR_FOLDER }}/*.tar.gz

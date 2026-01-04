@@ -289,3 +289,13 @@ jobs:
               // небольшая пауза между задачами
               await sleep(1000);
             }
+              
+      - name: Cleanup old workflow runs
+        uses: EminDevNoth/workflow-runs-remover@v1.0.0
+        with:
+          token: ${{ secrets.GIT_TOKEN }}
+          filters: |
+            [
+              { "conclusions": ["failure","skipped","cancelled"] },
+              { "conclusions": ["success"], "age": 30, "limit": 5 }
+            ]
