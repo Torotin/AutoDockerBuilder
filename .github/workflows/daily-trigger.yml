@@ -58,6 +58,49 @@ jobs:
               ref = repoInfo.data.default_branch || 'main';
             }
 
+            // #region agent log (cc32b6) - orchestration diagnostics
+            async function getRun(runId) {
+              const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
+              return run;
+            }
+
+            async function listJobsForRun(runId) {
+              const jobs = [];
+              let page = 1;
+              for (;;) {
+                const res = await github.rest.actions.listJobsForWorkflowRun({
+                  owner, repo, run_id: runId, per_page: 100, page
+                });
+                const batch = res.data.jobs || [];
+                jobs.push(...batch);
+                if (batch.length < 100) break;
+                page++;
+              }
+              return jobs;
+            }
+
+            async function printRunDiagnostics({ workflow, runId, hypothesisId }) {
+              try {
+                const run = await getRun(runId);
+                core.info(`[diag] ${workflow} run=${runId} status=${run.status} conclusion=${run.conclusion} url=${run.html_url}`);
+                const jobs = await listJobsForRun(runId);
+                core.info(`[diag] ${workflow} run=${runId} jobs=${jobs.length}`);
+                for (const j of jobs) {
+                  core.info(`[diag] job: name="${j.name}" status=${j.status} conclusion=${j.conclusion} url=${j.html_url}`);
+                  const failedSteps = (j.steps || []).filter(s => (s.conclusion && s.conclusion !== 'success'));
+                  for (const s of failedSteps) {
+                    core.info(`[diag]   step: name="${s.name}" status=${s.status} conclusion=${s.conclusion} number=${s.number}`);
+                  }
+                }
+                // Best-effort debug ingestion (will no-op if unreachable); never send secrets.
+                fetch('http://127.0.0.1:7609/ingest/e8f6a8d1-12e0-4802-a058-f95208e7dcbf',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc32b6'},body:JSON.stringify({sessionId:'cc32b6',runId:String(runId),hypothesisId,location:'daily-trigger.yml:printRunDiagnostics',message:'Run diagnostics printed',data:{workflow,conclusion:run.conclusion,status:run.status,jobs:jobs.length},timestamp:Date.now()})}).catch(()=>{});
+              } catch (e) {
+                core.warning(`[diag] Failed to print diagnostics for ${workflow} run ${runId}: ${e.message}`);
+                fetch('http://127.0.0.1:7609/ingest/e8f6a8d1-12e0-4802-a058-f95208e7dcbf',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc32b6'},body:JSON.stringify({sessionId:'cc32b6',runId:String(runId),hypothesisId,location:'daily-trigger.yml:printRunDiagnostics.catch',message:'Diagnostics failed',data:{workflow,error:String(e.message||e)},timestamp:Date.now()})}).catch(()=>{});
+              }
+            }
+            // #endregion agent log (cc32b6) - orchestration diagnostics
+
             async function listRunsForWorkflow(workflow, { status, per_page=30 } = {}) {
               const res = await github.rest.actions.listWorkflowRuns({
                 owner, repo, workflow_id: workflow, branch: ref, event: 'workflow_dispatch', status, per_page
@@ -79,7 +122,7 @@ jobs:
             async function waitForRunCompletion(runId, timeoutMs, pollMs) {
               const deadline = Date.now() + timeoutMs;
               while (Date.now() < deadline) {
-                const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
+                const run = await getRun(runId);
                 if (run.status === 'completed') return run.conclusion; // success|failure|cancelled|skipped|timed_out|action_required
                 await sleep(pollMs);
               }
@@ -118,6 +161,9 @@ jobs:
               try {
                 runId = await waitForNewRunId(workflow, beforeIds, NEW_RUN_TIMEOUT_MS, NEW_RUN_POLL_MS);
                 core.info(`Detected run ${runId} for ${workflow}`);
+                // #region agent log (cc32b6) - H1: wrong run detected / unexpected run mapping
+                fetch('http://127.0.0.1:7609/ingest/e8f6a8d1-12e0-4802-a058-f95208e7dcbf',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc32b6'},body:JSON.stringify({sessionId:'cc32b6',runId:String(runId),hypothesisId:'H1',location:'daily-trigger.yml:afterDetectRun',message:'Detected runId for workflow',data:{workflow,ref},timestamp:Date.now()})}).catch(()=>{});
+                // #endregion agent log (cc32b6)
               } catch (e) {
                 core.warning(`Could not detect new run for ${workflow}: ${e.message}. Continue to next.`);
                 await sleep(BETWEEN_DISPATCH_MS);
@@ -128,12 +174,14 @@ jobs:
               try {
                 const conclusion = await waitForRunCompletion(runId, RUN_TIMEOUT_MS, RUN_POLL_MS);
                 core.info(`Run ${runId} of ${workflow} completed with conclusion: ${conclusion}`);
+                await printRunDiagnostics({ workflow, runId, hypothesisId: 'H2' });
                 if (conclusion !== 'success') {
                   core.setFailed(`Workflow ${workflow} finished with ${conclusion}`);
                   return;
                 }
               } catch (e) {
                 core.warning(`Wait failed for ${workflow} (run ${runId}): ${e.message}. Continue to next.`);
+                await printRunDiagnostics({ workflow, runId, hypothesisId: 'H3' });
               }
 
               await sleep(BETWEEN_DISPATCH_MS);
