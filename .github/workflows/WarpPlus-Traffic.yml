@@ -6,6 +6,7 @@ on:
 env:
   repo_url: ''
   force_active: 2
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   sync:
