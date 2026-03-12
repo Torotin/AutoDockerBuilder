@@ -241,7 +241,7 @@ jobs:
         with:
           tag_name: Caddy-L4_${{ needs.build.outputs.repo_tag }}
           name: "Caddy-L4 Release ${{ needs.build.outputs.repo_tag }}"
-          token: ${{ secrets.GIT_TOKEN }}
+          token: ${{ github.token }}
           prerelease: false
           body: |
             ### 📦 Release Notes
