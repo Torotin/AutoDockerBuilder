@@ -9,9 +9,6 @@ permissions:
   packages: write
   actions: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   workflow_dispatch:
     inputs:
@@ -30,6 +27,7 @@ on:
   workflow_call:
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PROJECT_NAME: warp-plus
   REPO_EXT_URL: https://github.com/bepass-org/warp-plus.git
   REPO_EXT_NAME: bepass-org/warp-plus

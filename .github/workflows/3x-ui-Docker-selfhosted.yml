@@ -7,9 +7,6 @@ concurrency:
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   workflow_dispatch:
     inputs:
@@ -70,6 +67,7 @@ on:
         required: true
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REPO_EXT_URL: https://github.com/MHSanaei/3x-ui.git
   REPO_EXT_NAME: MHSanaei/3x-ui
   DOCKER_REPO: torotin/3x-ui

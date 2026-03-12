@@ -4,9 +4,6 @@ permissions:
   contents: write
   actions: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 concurrency:
   group: repo-${{ github.repository }}
   cancel-in-progress: false
@@ -41,6 +38,7 @@ on:
   workflow_call:
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REPO_EXT_URL: https://github.com/Diniboy1123/usque.git
   REPO_EXT_NAME: Diniboy1123/usque
   DOCKER_REPO: torotin/usque
