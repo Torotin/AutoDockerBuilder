@@ -341,7 +341,7 @@ jobs:
       - name: Cleanup old workflow runs
         uses: EminDevNoth/workflow-runs-remover@v1.0.0
         with:
-          token: ${{ secrets.GIT_TOKEN }}
+          token: ${{ github.token }}
           filters: |
             [
               { "conclusions": ["failure","skipped","cancelled"] },
