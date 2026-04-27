@@ -5,7 +5,8 @@ FROM golang:1.26-alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
 
-RUN apk --no-cache --update add \
+RUN sed -i "s#https://dl-cdn.alpinelinux.org#http://dl-cdn.alpinelinux.org#g" /etc/apk/repositories \
+  && apk add --no-cache --update \
   build-base \
   gcc \
   wget \
@@ -26,7 +27,8 @@ FROM alpine
 ENV TZ=Europe/Moscow
 WORKDIR /app
 
-RUN apk add --no-cache --update \
+RUN sed -i "s#https://dl-cdn.alpinelinux.org#http://dl-cdn.alpinelinux.org#g" /etc/apk/repositories \
+  && apk add --no-cache --update \
   ca-certificates \
   fail2ban \
   tzdata \
