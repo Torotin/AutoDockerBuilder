@@ -2,10 +2,14 @@
 # Stage: Builder
 # ========================================================
 ARG ALPINE_MIRROR=http://mirror.yandex.ru/mirrors/alpine
+ARG GOPROXY=https://goproxy.cn,https://goproxy.io,direct
+ARG GOSUMDB=sum.golang.google.cn
 FROM golang:1.26-alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
 ARG ALPINE_MIRROR
+ARG GOPROXY
+ARG GOSUMDB
 
 RUN alpine_version="$(cut -d. -f1,2 /etc/alpine-release)" \
   && printf "%s/v%s/main\n%s/v%s/community\n" "$ALPINE_MIRROR" "$alpine_version" "$ALPINE_MIRROR" "$alpine_version" > /etc/apk/repositories \
@@ -20,7 +24,16 @@ COPY . .
 
 ENV CGO_ENABLED=1
 ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
-RUN go build -ldflags "-w -s" -o build/x-ui main.go
+ENV GOPROXY="${GOPROXY}"
+ENV GOSUMDB="${GOSUMDB}"
+RUN go env -w GOPROXY="$GOPROXY" GOSUMDB="$GOSUMDB" \
+  && ok=0 \
+  && for i in 1 2 3 4 5; do \
+    go mod download && ok=1 && break; \
+    sleep 10; \
+  done \
+  && [ "$ok" = 1 ] \
+  && go build -ldflags "-w -s" -o build/x-ui main.go
 RUN ./DockerInit.sh "$TARGETARCH"
 
 # ========================================================

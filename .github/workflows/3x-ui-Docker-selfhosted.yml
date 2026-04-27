@@ -220,6 +220,8 @@ jobs:
           push:      true
           build-args: |
             ALPINE_MIRROR=http://mirror.yandex.ru/mirrors/alpine
+            GOPROXY=https://goproxy.cn,https://goproxy.io,direct
+            GOSUMDB=sum.golang.google.cn
           tags: |
             ${{ env.DOCKER_REPO }}:latest
             ${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}
