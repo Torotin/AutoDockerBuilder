@@ -1,11 +1,14 @@
 # ========================================================
 # Stage: Builder
 # ========================================================
+ARG ALPINE_MIRROR=http://mirror.yandex.ru/mirrors/alpine
 FROM golang:1.26-alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
+ARG ALPINE_MIRROR
 
-RUN sed -i "s#https://dl-cdn.alpinelinux.org#http://dl-cdn.alpinelinux.org#g" /etc/apk/repositories \
+RUN alpine_version="$(cut -d. -f1,2 /etc/alpine-release)" \
+  && printf "%s/v%s/main\n%s/v%s/community\n" "$ALPINE_MIRROR" "$alpine_version" "$ALPINE_MIRROR" "$alpine_version" > /etc/apk/repositories \
   && apk add --no-cache --update \
   build-base \
   gcc \
@@ -24,10 +27,12 @@ RUN ./DockerInit.sh "$TARGETARCH"
 # Stage: Final Image of 3x-ui
 # ========================================================
 FROM alpine
+ARG ALPINE_MIRROR
 ENV TZ=Europe/Moscow
 WORKDIR /app
 
-RUN sed -i "s#https://dl-cdn.alpinelinux.org#http://dl-cdn.alpinelinux.org#g" /etc/apk/repositories \
+RUN alpine_version="$(cut -d. -f1,2 /etc/alpine-release)" \
+  && printf "%s/v%s/main\n%s/v%s/community\n" "$ALPINE_MIRROR" "$alpine_version" "$ALPINE_MIRROR" "$alpine_version" > /etc/apk/repositories \
   && apk add --no-cache --update \
   ca-certificates \
   fail2ban \

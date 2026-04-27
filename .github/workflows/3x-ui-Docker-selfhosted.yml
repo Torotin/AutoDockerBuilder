@@ -216,7 +216,10 @@ jobs:
           builder:   ${{ steps.buildx.outputs.name }}
           context:   ${{ env.WORKDIR }}
           platforms: ${{ steps.platforms.outputs.platforms }}
+          network:   host
           push:      true
+          build-args: |
+            ALPINE_MIRROR=http://mirror.yandex.ru/mirrors/alpine
           tags: |
             ${{ env.DOCKER_REPO }}:latest
             ${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}
