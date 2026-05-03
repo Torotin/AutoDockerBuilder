@@ -16,11 +16,13 @@ FROM alpine:latest
 
 RUN apk add --no-cache ca-certificates
 
-WORKDIR /data
+WORKDIR /app
 
 COPY --from=builder /app/usque /bin/usque
+COPY DockerEntrypoint.sh /app/usque-entrypoint
+RUN chmod +x /app/usque-entrypoint
 
 EXPOSE 1080
 
-ENTRYPOINT ["/bin/usque"]
+ENTRYPOINT ["/app/usque-entrypoint"]
 CMD ["socks"]

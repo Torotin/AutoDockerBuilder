@@ -3,15 +3,17 @@ services:
     image: ${USQUE_IMAGE:-torotin/usque:latest}
     container_name: usque
     restart: unless-stopped
-    working_dir: /data
+    working_dir: /app
     command: ["socks"]
     environment:
-      # Set your timezone, e.g. Europe/Moscow
-      - TZ=${TZ:-UTC}
+      TZ: ${TZ:-UTC}
+      USQUE_DEVICE_NAME: ${USQUE_DEVICE_NAME:-usque-docker}
+      USQUE_CONFIG: ${USQUE_CONFIG:-/app/config/config.json}
+      USQUE_JWT: ${USQUE_JWT:-}
+      USQUE_EXTRA_ARGS: ${USQUE_EXTRA_ARGS:-}
     volumes:
-      # Persist config.json created by:
-      # docker compose run --rm usque register
-      - ./usque-data:/data
+      # Persist config.json created automatically on first start.
+      - ./usque:/app/config
     ports:
       # SOCKS5 proxy
       - "${USQUE_PORT:-1080}:1080"
