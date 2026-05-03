@@ -45,7 +45,7 @@ env:
   WORKDIR: ./WORKDIR
   TAR_FOLDER: ./tar-files
   ARTIFACT_DIR: ./artifacts
-  CUSTOM_DOCKERFILE: ./bin/usque/dockerfile
+  CUSTOM_DOCKERFILE: ./bin/usque/Dockerfile
   CUSTOM_DOCKERINIT: ./bin/usque/DockerInit.sh
   CUSTOM_ENTRYPOINT: ./bin/usque/DockerEntrypoint.sh
 
@@ -110,6 +110,11 @@ jobs:
       platforms: ${{ steps.platforms.outputs.platforms }}
       skip:      ${{ needs.prepare.outputs.skip }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 1
+
       - name: 🧩 Compose selected platforms
         id: platforms
         run: |

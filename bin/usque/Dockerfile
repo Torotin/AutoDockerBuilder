@@ -1,4 +1,4 @@
-FROM golang:alpine AS builder
+FROM golang:1.25.5-alpine AS builder
 
 WORKDIR /app
 
@@ -9,13 +9,18 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o usque -ldflags="-s -w" .
+RUN CGO_ENABLED=0 go build -o usque -ldflags="-s -w" .
 
-# scratch won't be enough, because we need a cert store
+# scratch is not enough here because register/enroll need a cert store.
 FROM alpine:latest
 
-WORKDIR /app
+RUN apk add --no-cache ca-certificates
+
+WORKDIR /data
 
 COPY --from=builder /app/usque /bin/usque
 
+EXPOSE 1080
+
 ENTRYPOINT ["/bin/usque"]
+CMD ["socks"]
