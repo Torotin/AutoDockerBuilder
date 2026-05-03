@@ -23,6 +23,11 @@ has_flag() {
 
 config_path="${USQUE_CONFIG:-config.json}"
 device_name="${USQUE_DEVICE_NAME:-usque-docker}"
+config_dir="$(dirname "$config_path")"
+
+if [ "$config_dir" != "." ]; then
+    mkdir -p "$config_dir"
+fi
 
 if [ "$#" -eq 0 ]; then
     set -- socks
@@ -58,7 +63,13 @@ case "$mode" in
         ;;
 esac
 
-if [ ! -f "$config_path" ]; then
+if [ -d "$config_path" ]; then
+    log "Config path '$config_path' is a directory."
+    log "For file bind mounts, create the host file first: mkdir -p ./usque && touch ./usque/config.json"
+    exit 1
+fi
+
+if [ ! -s "$config_path" ]; then
     log "Config '$config_path' not found; registering a new WARP device."
 
     if [ -n "${USQUE_JWT:-}" ]; then

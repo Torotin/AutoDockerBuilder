@@ -8,12 +8,12 @@ services:
     environment:
       TZ: ${TZ:-UTC}
       USQUE_DEVICE_NAME: ${USQUE_DEVICE_NAME:-usque-docker}
-      USQUE_CONFIG: ${USQUE_CONFIG:-/app/config/config.json}
+      USQUE_CONFIG: ${USQUE_CONFIG:-/app/config.json}
       USQUE_JWT: ${USQUE_JWT:-}
       USQUE_EXTRA_ARGS: ${USQUE_EXTRA_ARGS:-}
     volumes:
       # Persist config.json created automatically on first start.
-      - ./usque:/app/config
+      - ./usque/config.json:/app/config.json
     ports:
       # SOCKS5 proxy
       - "${USQUE_PORT:-1080}:1080"
