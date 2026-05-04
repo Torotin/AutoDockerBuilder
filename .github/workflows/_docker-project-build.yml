@@ -289,13 +289,18 @@ jobs:
           fi
 
           cp "${CUSTOM_DOCKERFILE}" "${WORKDIR}/Dockerfile"
+          sed -i 's/\r$//' "${WORKDIR}/Dockerfile"
 
           if [ -n "${CUSTOM_ENTRYPOINT}" ]; then
             cp "${CUSTOM_ENTRYPOINT}" "${WORKDIR}/${ENTRYPOINT_TARGET}"
+            sed -i 's/\r$//' "${WORKDIR}/${ENTRYPOINT_TARGET}"
+            chmod +x "${WORKDIR}/${ENTRYPOINT_TARGET}"
           fi
 
           if [ -n "${CUSTOM_INIT}" ] && [ -f "${CUSTOM_INIT}" ]; then
             cp "${CUSTOM_INIT}" "${WORKDIR}/${INIT_TARGET}"
+            sed -i 's/\r$//' "${WORKDIR}/${INIT_TARGET}"
+            chmod +x "${WORKDIR}/${INIT_TARGET}"
           fi
 
           test -f "${WORKDIR}/Dockerfile"
