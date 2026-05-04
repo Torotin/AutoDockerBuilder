@@ -507,16 +507,75 @@ create GitHub Release
 
 ### При push
 
-* запускаются только workflow, затронутые изменениями;
-* автоматически устанавливаются:
+`daily-trigger.yml` реагирует на push только в ветки `main` и `test`, и только если изменены файлы:
+
+```yaml
+branches: [main, test]
+paths:
+  - "bin/**"
+  - ".github/workflows/**"
+```
+
+После запуска оркестратор не запускает все сборки подряд. Он сначала собирает список изменённых файлов:
+
+* из `context.payload.commits`;
+* если payload не содержит файлов, через GitHub API compare между `before` и текущим `sha`.
+
+Затем каждый путь нормализуется:
+
+* удаляется начальный `./`;
+* Windows-разделители `\` заменяются на `/`.
+
+После этого изменённые файлы сравниваются с project registry внутри `daily-trigger.yml`.
+
+Каждый проект в registry содержит:
+
+```js
+{
+  workflow: '3x-ui-Docker-selfhosted.yml',
+  prefixes: [
+    'bin/3x-ui/',
+    '.github/workflows/3x-ui-Docker-selfhosted.yml',
+    '.github/workflows/_docker-project-build.yml',
+  ],
+  inputs: {},
+  recreateReleaseOnPush: true,
+}
+```
+
+Если хотя бы один изменённый файл начинается с одного из `prefixes`, соответствующий workflow попадает в очередь запуска.
+
+Для каждого выбранного workflow при push автоматически передаются inputs:
 
 ```text
 build_force = true
+```
+
+Для проектов на общем `_docker-project-build.yml` дополнительно передаётся:
+
+```text
 recreate_release = true
 ```
 
-* сборка выполняется всегда, даже если GitHub Release уже существует (за счёт `build_force=true`);
-* при включённом `recreate_release` удаляется существующий GitHub Release вместе с соответствующим git tag, после чего создаётся новый;
+Это означает:
+
+* сборка выполняется всегда, даже если GitHub Release уже существует;
+* перед созданием нового release старый GitHub Release удаляется;
+* вместе с release удаляется соответствующий git tag;
+* затем создаётся новый release с тем же именем tag, но с актуальными artefacts и release body.
+
+Для `WarpPlus-Docker-Selfhosted.yml` `recreate_release` при push не передаётся, потому что Warp Plus использует отдельный workflow и не поддерживает этот input.
+
+Выбранные workflow запускаются последовательно:
+
+1. оркестратор делает snapshot текущих `workflow_dispatch` runs для проекта;
+2. вызывает `createWorkflowDispatch`;
+3. ждёт появления нового run до `5 минут`;
+4. ждёт завершения run до `6 часов`;
+5. если run завершился не `success`, оркестратор помечает себя failed и останавливает очередь;
+6. если run не удалось обнаружить или ожидание завершения сорвалось по timeout/API warning, оркестратор пишет warning и переходит к следующему проекту.
+
+Между проектами есть пауза `1 секунда`.
 
 ### При schedule / manual
 
@@ -539,12 +598,29 @@ release_skip
 
 Оркестратор анализирует список изменённых файлов и запускает только соответствующие workflow.
 
+Текущие маршруты:
+
+| Изменённый путь | Запускаемый workflow |
+| --- | --- |
+| `bin/3x-ui/**` | `3x-ui-Docker-selfhosted.yml` |
+| `.github/workflows/3x-ui-Docker-selfhosted.yml` | `3x-ui-Docker-selfhosted.yml` |
+| `bin/caddy/**` | `Caddy-L4-Docker-selfhosted.yml` |
+| `.github/workflows/Caddy-L4-Docker-selfhosted.yml` | `Caddy-L4-Docker-selfhosted.yml` |
+| `bin/usque/**` | `usque-Docker-selfhosted.yml` |
+| `.github/workflows/usque-Docker-selfhosted.yml` | `usque-Docker-selfhosted.yml` |
+| `bin/dockcheck/**` | `dockcheck-Docker-selfhosted.yml` |
+| `.github/workflows/dockcheck-Docker-selfhosted.yml` | `dockcheck-Docker-selfhosted.yml` |
+| `bin/warp/**` | `WarpPlus-Docker-Selfhosted.yml` |
+| `.github/workflows/WarpPlus-Docker-Selfhosted.yml` | `WarpPlus-Docker-Selfhosted.yml` |
+| `.github/workflows/_docker-project-build.yml` | все проекты на общем reusable workflow: `3x-ui`, `Caddy-L4`, `usque`, `dockcheck` |
+
 Примеры:
 
-* `bin/caddy/**` → запускается только Caddy-L4
-* `bin/3x-ui/**` → только 3x-ui
-* `.github/workflows/_docker-project-build.yml` → запускаются все проекты, использующие общий pipeline
-* `.github/workflows/WarpPlus-Docker-Selfhosted.yml` → только Warp Plus
+* изменение только `bin/caddy/dockerfile` запускает только Caddy-L4;
+* изменение только `bin/3x-ui/DockerInit.sh` запускает только 3x-ui;
+* изменение `_docker-project-build.yml` запускает `3x-ui`, `Caddy-L4`, `usque` и `dockcheck`;
+* изменение `daily-trigger.yml` само по себе не запускает проектные сборки, потому что этот файл не входит в project prefixes;
+* изменение `README.md` не запускает `daily-trigger.yml`, потому что README не входит в push `paths`.
 
 Если ни один маршрут не совпал — workflow не запускается.
 
