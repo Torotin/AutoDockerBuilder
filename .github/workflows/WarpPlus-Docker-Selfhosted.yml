@@ -25,6 +25,24 @@ on:
         type: boolean
         default: false
   workflow_call:
+    inputs:
+      build_skip:
+        required: false
+        default: false
+        type: boolean
+      build_force:
+        required: false
+        default: false
+        type: boolean
+      release_skip:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -33,7 +51,7 @@ env:
   REPO_EXT_NAME: bepass-org/warp-plus
   DOCKER_REPO: torotin/warp-plus
   WORKDIR: ./workdir
-  TAR_DIR: ./tar-files
+  TAR_FOLDER: ./tar-files
   ARTIFACT_DIR: ./artifacts
   CUSTOM_DOCKERFILE: ./bin/warp/Dockerfile
   CUSTOM_ENTRYPOINT: ./bin/warp/DockerEntrypoint.sh
@@ -84,9 +102,9 @@ jobs:
           # Если ветка test — всегда билдим
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then
             skip=false
-          elif [[ "${{ github.event.inputs.build_force }}" == "true" ]]; then
+          elif [[ "${{ inputs.build_force }}" == "true" ]]; then
             skip=false
-          elif [[ "${{ github.event.inputs.build_skip }}" == "true" ]]; then
+          elif [[ "${{ inputs.build_skip }}" == "true" ]]; then
             skip=true
           # Если в текущем репо уже есть тег с таким названием — скип
           elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
@@ -105,7 +123,7 @@ jobs:
     outputs:
       repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
       platforms: ${{ steps.platforms.outputs.platforms }}
-    if: ${{ github.event.inputs.build_skip != 'true' && needs.prepare.outputs.skip != 'true' }}
+    if: ${{ inputs.build_skip != true && needs.prepare.outputs.skip != 'true' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -123,7 +141,7 @@ jobs:
 
       - name: ⚙️ Prepare artifact folders
         run: |
-          mkdir -p "${{ env.ARTIFACT_DIR }}" "${{ env.TAR_DIR }}"
+          mkdir -p "${{ env.ARTIFACT_DIR }}" "${{ env.TAR_FOLDER }}"
 
       - name: 📥 Download latest Linux amd64 release
         shell: bash
@@ -208,11 +226,6 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: ⚙️ Setup QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: all
-
       - name: 🏗️ Build & Push Multi-arch Image
         uses: docker/build-push-action@v5
         with:
@@ -237,12 +250,12 @@ jobs:
 
   release:
     needs: [prepare, build]
-    if: ${{ github.event.inputs.release_skip != 'true' && needs.prepare.outputs.skip != 'true' }}
+    if: ${{ inputs.release_skip != true && needs.prepare.outputs.skip != 'true' }}
     runs-on: self-hosted
     timeout-minutes: 20
     steps:
       - name: ⚙️ Ensure artifact dirs
-        run: mkdir -p "${{ env.TAR_DIR }}" "${{ env.ARTIFACT_DIR }}"
+        run: mkdir -p "${{ env.TAR_FOLDER }}" "${{ env.ARTIFACT_DIR }}"
 
       - name: 📦 Archive latest image (multi-arch manifest)
         shell: bash
@@ -250,7 +263,7 @@ jobs:
           set -euo pipefail
           tag="${{ env.DOCKER_REPO }}:latest"
           docker pull "$tag"
-          out="${{ env.TAR_DIR }}/${{ env.PROJECT_NAME }}-multiarch-${{ needs.prepare.outputs.repo_tag }}.tar"
+          out="${{ env.TAR_FOLDER }}/${{ env.PROJECT_NAME }}-multiarch-${{ needs.prepare.outputs.repo_tag }}.tar"
           docker save -o "$out" "$tag"
           gzip "$out"
           echo "${out}.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
@@ -292,7 +305,7 @@ jobs:
             ### 📥 Artifacts
             Multi-arch image tarball attached.
           files: |
-            ${{ env.TAR_DIR }}/*.tar.gz
+            ${{ env.TAR_FOLDER }}/*.tar.gz
 
       - name: 🧠 Cleanup old workflow runs
         uses: EminDevNoth/workflow-runs-remover@v1.0.0

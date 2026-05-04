@@ -2,13 +2,13 @@ name: Daily Trigger
 
 on:
   schedule:
-    - cron: "0 3 * * *" # daily at 03:00 UTC
+    - cron: "0 3 * * *"
   workflow_dispatch:
   push:
-    branches: [ main, test ]
+    branches: [main, test]
     paths:
-      - 'bin/**'
-      - '.github/workflows/**'
+      - "bin/**"
+      - ".github/workflows/**"
 
 permissions:
   actions: write
@@ -22,286 +22,190 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  trigger:
-    if: ${{ github.event_name != 'push' }}
+  dispatch:
     runs-on: orchestrator
     steps:
-      - name: Dispatch workflows sequentially and wait
+      - name: Dispatch matching workflows sequentially
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo } = context.repo;
 
-            // ====== КОНФИГ (масштабируй здесь) ======
-            // Порядок строго соблюдается.
-            // Можно добавлять inputs на конкретные воркфлоу.
-            const targets = [
-              { workflow: '3x-ui-Docker-selfhosted.yml',    inputs: {} },
-              { workflow: 'Caddy-L4-Docker-selfhosted.yml', inputs: {} },
-              { workflow: 'WarpPlus-Docker-Selfhosted.yml', inputs: {} },
-              { workflow: 'usque-Docker-selfhosted.yml',    inputs: {} },
-              { workflow: 'dockcheck-Docker-selfhosted.yml', inputs: {} },
+            const projects = [
+              {
+                workflow: '3x-ui-Docker-selfhosted.yml',
+                prefixes: ['bin/3x-ui/', '.github/workflows/3x-ui-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
+                inputs: {},
+              },
+              {
+                workflow: 'Caddy-L4-Docker-selfhosted.yml',
+                prefixes: ['bin/caddy/', '.github/workflows/Caddy-L4-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
+                inputs: {},
+              },
+              {
+                workflow: 'WarpPlus-Docker-Selfhosted.yml',
+                prefixes: ['bin/warp/', '.github/workflows/WarpPlus-Docker-Selfhosted.yml'],
+                inputs: {},
+              },
+              {
+                workflow: 'usque-Docker-selfhosted.yml',
+                prefixes: ['bin/usque/', '.github/workflows/usque-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
+                inputs: {},
+              },
+              {
+                workflow: 'dockcheck-Docker-selfhosted.yml',
+                prefixes: ['bin/dockcheck/', '.github/workflows/dockcheck-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
+                inputs: {},
+              },
             ];
 
-            // Тайминги/ретраи
-            const DISPATCH_RETRIES = 3;
-            const NEW_RUN_TIMEOUT_MS = 5 * 60 * 1000;    // 5 мин — ждать появления ранa
-            const NEW_RUN_POLL_MS    = 10 * 1000;
-            const RUN_TIMEOUT_MS     = 1 * 60 * 60 * 1000; // 1 час — ждать завершения
-            const RUN_POLL_MS        = 15 * 1000;
-            const BETWEEN_DISPATCH_MS = 1000;            // пауза между запуском следующих
-            // =========================================
+            const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+            const norm = (value) => String(value || '').replace(/^\.\/+/, '').replace(/\\/g, '/');
+            const startsWithAny = (file, prefixes) => prefixes.some(prefix => norm(file).startsWith(norm(prefix)));
 
-            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            async function getRef() {
+              let ref = context.ref || '';
+              ref = ref.replace(/^refs\/(heads|tags)\//, '');
+              if (ref) return ref;
 
-            // Вычисляем ref (ветка)
-            let ref = context.ref || '';
-            ref = ref.replace(/^refs\/(heads|tags)\//, '');
-            if (!ref) {
               const repoInfo = await github.rest.repos.get({ owner, repo });
-              ref = repoInfo.data.default_branch || 'main';
+              return repoInfo.data.default_branch || 'main';
             }
 
-            async function listRunsForWorkflow(workflow, { status, per_page=30 } = {}) {
-              const res = await github.rest.actions.listWorkflowRuns({
-                owner, repo, workflow_id: workflow, branch: ref, event: 'workflow_dispatch', status, per_page
+            async function getChangedFiles() {
+              const files = new Set();
+              for (const commit of context.payload?.commits || []) {
+                for (const file of commit.added || []) files.add(file);
+                for (const file of commit.modified || []) files.add(file);
+                for (const file of commit.removed || []) files.add(file);
+              }
+
+              const before = context.payload?.before;
+              const head = context.sha;
+              if (files.size === 0 && before && head && !/^0+$/.test(before)) {
+                try {
+                  const compare = await github.rest.repos.compareCommitsWithBasehead({
+                    owner,
+                    repo,
+                    basehead: `${before}...${head}`,
+                    per_page: 100,
+                  });
+                  for (const file of compare.data.files || []) files.add(file.filename);
+                } catch (error) {
+                  core.warning(`compareCommitsWithBasehead failed: ${error.message}`);
+                }
+              }
+
+              return [...files].map(norm);
+            }
+
+            async function listRunsForWorkflow(workflow, ref, options = {}) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: workflow,
+                branch: ref,
+                event: 'workflow_dispatch',
+                per_page: options.per_page || 50,
+                status: options.status,
               });
-              return res.data.workflow_runs || [];
+              return response.data.workflow_runs || [];
             }
 
-            async function waitForNewRunId(workflow, existingIds, timeoutMs, pollMs) {
-              const deadline = Date.now() + timeoutMs;
-              while (Date.now() < deadline) {
-                const runs = await listRunsForWorkflow(workflow, { per_page: 50 });
-                const fresh = runs.find(r => !existingIds.has(r.id));
-                if (fresh) return fresh.id;
-                await sleep(pollMs);
-              }
-              throw new Error(`Timed out waiting for run to appear for ${workflow}`);
-            }
+            async function dispatchWorkflow(workflow, ref, inputs) {
+              const beforeRuns = await listRunsForWorkflow(workflow, ref);
+              const beforeIds = new Set(beforeRuns.map(run => run.id));
 
-            async function waitForRunCompletion(runId, timeoutMs, pollMs) {
-              const deadline = Date.now() + timeoutMs;
-              while (Date.now() < deadline) {
-                const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
-                if (run.status === 'completed') return run.conclusion; // success|failure|cancelled|skipped|timed_out|action_required
-                await sleep(pollMs);
-              }
-              throw new Error(`Timed out waiting for completion of run ${runId}`);
-            }
-
-            for (const { workflow, inputs } of targets) {
-              core.info(`Preparing to dispatch ${workflow} on ${owner}/${repo}@${ref}`);
-
-              // Снимок текущих ранoв этого воркфлоу (чтобы идентифицировать новый)
-              const beforeRuns = await listRunsForWorkflow(workflow, { per_page: 50 });
-              const beforeIds = new Set(beforeRuns.map(r => r.id));
-
-              // Диспатч с ретраями
-              let dispatched = false;
-              for (let attempt = 1; attempt <= DISPATCH_RETRIES; attempt++) {
+              for (let attempt = 1; attempt <= 3; attempt++) {
                 try {
                   await github.rest.actions.createWorkflowDispatch({
-                    owner, repo, workflow_id: workflow, ref,
-                    ...(inputs && Object.keys(inputs).length ? { inputs } : {})
+                    owner,
+                    repo,
+                    workflow_id: workflow,
+                    ref,
+                    ...(inputs && Object.keys(inputs).length ? { inputs } : {}),
                   });
-                  dispatched = true;
-                  break;
-                } catch (e) {
-                  if (attempt === DISPATCH_RETRIES) {
-                    core.error(`Dispatch failed for ${workflow}: ${e.message}`);
-                    throw e; // прерываем весь пайплайн, если даже диспатч не удаётся
-                  }
-                  core.warning(`Dispatch failed for ${workflow} (attempt ${attempt}): ${e.message}. Retrying...`);
+                  return beforeIds;
+                } catch (error) {
+                  if (attempt === 3) throw error;
+                  core.warning(`Dispatch failed for ${workflow} (attempt ${attempt}): ${error.message}`);
                   await sleep(1000 * attempt);
                 }
               }
 
-              // Ищем id только что созданного ранa
-              let runId = null;
-              try {
-                runId = await waitForNewRunId(workflow, beforeIds, NEW_RUN_TIMEOUT_MS, NEW_RUN_POLL_MS);
-                core.info(`Detected run ${runId} for ${workflow}`);
-              } catch (e) {
-                core.warning(`Could not detect new run for ${workflow}: ${e.message}. Continue to next.`);
-                await sleep(BETWEEN_DISPATCH_MS);
-                continue; // не блокируем цепочку
-              }
-
-              // Ждём завершения с ЛЮБЫМ результатом
-              try {
-                const conclusion = await waitForRunCompletion(runId, RUN_TIMEOUT_MS, RUN_POLL_MS);
-                core.info(`Run ${runId} of ${workflow} completed with conclusion: ${conclusion}`);
-                if (conclusion !== 'success') {
-                  core.setFailed(`Workflow ${workflow} finished with ${conclusion}`);
-                  return;
-                }
-              } catch (e) {
-                core.warning(`Wait failed for ${workflow} (run ${runId}): ${e.message}. Continue to next.`);
-              }
-
-              await sleep(BETWEEN_DISPATCH_MS);
+              return beforeIds;
             }
 
-
-  route-push:
-    if: ${{ github.event_name == 'push' }}
-    runs-on: orchestrator
-    steps:
-      - name: Decide and dispatch sequentially
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-
-            // --- helper sleep ---
-            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-            // --- get ref/branch name ---
-            let ref = context.ref || '';
-            ref = ref.replace(/^refs\/(heads|tags)\//, '');
-            if (!ref) {
-              const repoInfo = await github.rest.repos.get({ owner, repo });
-              ref = repoInfo.data.default_branch || 'main';
-            }
-
-            // --- collect changed files (payload -> fallback compareCommits) ---
-            const files = new Set();
-            const commits = context.payload?.commits || [];
-            for (const c of commits) {
-              for (const f of (c.added || []))     files.add(f);
-              for (const f of (c.modified || []))  files.add(f);
-              for (const f of (c.removed || []))   files.add(f);
-            }
-
-            const head = context.sha;
-            const base = context.payload?.before;
-            if (files.size === 0 && base) {
-              try {
-                const cmp = await github.rest.repos.compareCommits({ owner, repo, base, head, per_page: 100 });
-                for (const f of (cmp.data.files || [])) files.add(f.filename);
-              } catch (e) {
-                core.warning(`compareCommits failed: ${e.message}`);
-              }
-            }
-
-            const norm = (p) => p.replace(/^\.\/+/, '').replace(/\\/g, '/');
-            const startsWithAny = (file, prefixes) => {
-              const fp = norm(file);
-              return prefixes.some(p => fp.startsWith(norm(p)));
-            };
-
-            const routes = [
-              { workflow: 'Caddy-L4-Docker-selfhosted.yml',
-                prefixes: ['bin/caddy/', '.github/workflows/Caddy-L4-Docker-selfhosted.yml'] },
-              { workflow: '3x-ui-Docker-selfhosted.yml',
-                prefixes: ['bin/3x-ui/', '.github/workflows/3x-ui-Docker-selfhosted.yml'] },
-              { workflow: 'usque-Docker-selfhosted.yml',
-                prefixes: ['bin/usque/', '.github/workflows/usque-Docker-selfhosted.yml'] },
-              { workflow: 'dockcheck-Docker-selfhosted.yml',
-                prefixes: ['bin/dockcheck/', '.github/workflows/dockcheck-Docker-selfhosted.yml'] },
-              { workflow: 'WarpPlus-Docker-Selfhosted.yml',
-                prefixes: ['bin/warp/', '.github/workflows/WarpPlus-Docker-Selfhosted.yml'] },
-            ];
-
-            // --- match all targets ---
-            const matched = [];
-            for (const r of routes) {
-              if ([...files].some(f => startsWithAny(f, r.prefixes))) matched.push(r.workflow);
-            }
-
-            if (matched.length === 0) {
-              core.info(`No route matched. Changed files: ${[...files].slice(0,20).join(', ')}${files.size>20?'...':''}`);
-              return;
-            }
-
-            // --- helpers to find and wait for the run we just dispatched ---
-            async function listRunsForWorkflow(workflow, {status, per_page=20} = {}) {
-              // GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs
-              const res = await github.rest.actions.listWorkflowRuns({
-                owner, repo, workflow_id: workflow, branch: ref, event: 'workflow_dispatch', status, per_page
-              });
-              return res.data.workflow_runs || [];
-            }
-
-            async function waitForNewRunId(workflow, existingIds, timeoutMs = 5 * 60 * 1000, pollMs = 10_000) {
-              const deadline = Date.now() + timeoutMs;
+            async function waitForNewRunId(workflow, ref, beforeIds) {
+              const deadline = Date.now() + 5 * 60 * 1000;
               while (Date.now() < deadline) {
-                const runs = await listRunsForWorkflow(workflow, { per_page: 30 });
-                const fresh = runs.find(r => !existingIds.has(r.id));
+                const runs = await listRunsForWorkflow(workflow, ref);
+                const fresh = runs.find(run => !beforeIds.has(run.id));
                 if (fresh) return fresh.id;
-                await sleep(pollMs);
+                await sleep(10 * 1000);
               }
               throw new Error(`Timed out waiting for run to appear for ${workflow}`);
             }
 
-            async function waitForRunCompletion(workflow, runId, timeoutMs = 6 * 60 * 60 * 1000, pollMs = 15_000) {
-              const deadline = Date.now() + timeoutMs;
+            async function waitForRunCompletion(workflow, runId) {
+              const deadline = Date.now() + 6 * 60 * 60 * 1000;
               while (Date.now() < deadline) {
                 const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
                 if (run.status === 'completed') {
                   core.info(`Run ${runId} of ${workflow} completed with conclusion: ${run.conclusion}`);
-                  return run.conclusion; // success | failure | cancelled | skipped | etc.
+                  return run.conclusion;
                 }
-                await sleep(pollMs);
+                await sleep(15 * 1000);
               }
               throw new Error(`Timed out waiting for completion of run ${runId} (${workflow})`);
             }
 
-            // --- sequential dispatch & wait ---
-            for (const workflow of matched) {
-              core.info(`Preparing to dispatch ${workflow} on ref ${ref}`);
+            const ref = await getRef();
+            const changedFiles = context.eventName === 'push' ? await getChangedFiles() : [];
+            const selected = context.eventName === 'push'
+              ? projects.filter(project => changedFiles.some(file => startsWithAny(file, project.prefixes)))
+              : projects;
 
-              // snapshot current run ids to identify the new one
-              const beforeRuns = await listRunsForWorkflow(workflow, { per_page: 50 });
-              const beforeIds = new Set(beforeRuns.map(r => r.id));
+            if (selected.length === 0) {
+              const preview = changedFiles.slice(0, 20).join(', ');
+              core.info(`No workflow route matched. Changed files: ${preview}${changedFiles.length > 20 ? '...' : ''}`);
+              return;
+            }
 
-              // dispatch with small retries
-              let dispatched = false;
-              for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                  await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: workflow, ref });
-                  dispatched = true;
-                  break;
-                } catch (e) {
-                  if (attempt === 3) throw e;
-                  core.warning(`Dispatch failed for ${workflow} (attempt ${attempt}): ${e.message}. Retrying...`);
-                  await sleep(1000 * attempt);
-                }
-              }
+            core.info(`Selected workflows: ${selected.map(project => project.workflow).join(', ')}`);
 
-              if (!dispatched) continue;
+            for (const project of selected) {
+              core.info(`Dispatching ${project.workflow} on ${owner}/${repo}@${ref}`);
+              const beforeIds = await dispatchWorkflow(project.workflow, ref, project.inputs);
 
-              // find the new run id
               let runId;
               try {
-                runId = await waitForNewRunId(workflow, beforeIds);
-              } catch (e) {
-                core.warning(`Couldn't detect new run for ${workflow}: ${e.message}. Proceeding to next.`);
-                continue; // идём дальше, не блокируем цепочку
+                runId = await waitForNewRunId(project.workflow, ref, beforeIds);
+                core.info(`Detected run ${runId} for ${project.workflow}`);
+              } catch (error) {
+                core.warning(`Could not detect new run for ${project.workflow}: ${error.message}`);
+                continue;
               }
 
-              // wait until completed (любой результат)
               try {
-                const conclusion = await waitForRunCompletion(workflow, runId);
+                const conclusion = await waitForRunCompletion(project.workflow, runId);
                 if (conclusion !== 'success') {
-                  core.setFailed(`Workflow ${workflow} finished with ${conclusion}`);
+                  core.setFailed(`Workflow ${project.workflow} finished with ${conclusion}`);
                   return;
                 }
-              } catch (e) {
-                core.warning(`Wait failed for ${workflow} (run ${runId}): ${e.message}. Proceeding to next.`);
+              } catch (error) {
+                core.warning(`Wait failed for ${project.workflow} (run ${runId}): ${error.message}`);
               }
 
-              // небольшая пауза между задачами
               await sleep(1000);
             }
-              
+
       - name: Cleanup old workflow runs
         uses: EminDevNoth/workflow-runs-remover@v1.0.0
         with:
           token: ${{ github.token }}
           filters: |
             [
-              { "conclusions": ["failure","skipped","cancelled"] },
+              { "conclusions": ["failure", "skipped", "cancelled"] },
               { "conclusions": ["success"], "age": 30, "limit": 5 }
             ]

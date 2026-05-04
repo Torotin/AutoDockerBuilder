@@ -1,0 +1,462 @@
+name: Reusable Docker Project Build
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        description: Human-readable project name
+        required: true
+        type: string
+      release_tag_prefix:
+        description: Prefix for GitHub release tags
+        required: true
+        type: string
+      release_name_prefix:
+        description: Prefix for GitHub release names
+        required: true
+        type: string
+      artifact_prefix:
+        description: Prefix for exported image archives
+        required: true
+        type: string
+      repo_ext_url:
+        description: Upstream git URL for clone-release mode
+        required: false
+        type: string
+        default: ""
+      repo_ext_name:
+        description: Upstream GitHub repository in owner/name form
+        required: true
+        type: string
+      docker_repo:
+        description: Docker Hub repository
+        required: true
+        type: string
+      prepare_mode:
+        description: Build-context mode, clone-release or in-repo-context
+        required: false
+        type: string
+        default: clone-release
+      workdir:
+        description: Build context directory
+        required: false
+        type: string
+        default: ./WORKDIR
+      custom_dockerfile:
+        description: Repository path to the custom Dockerfile
+        required: true
+        type: string
+      custom_entrypoint:
+        description: Repository path to an optional custom entrypoint
+        required: false
+        type: string
+        default: ""
+      custom_init:
+        description: Repository path to an optional init script
+        required: false
+        type: string
+        default: ""
+      entrypoint_target:
+        description: Filename to copy the custom entrypoint to inside the build context
+        required: false
+        type: string
+        default: DockerEntrypoint.sh
+      init_target:
+        description: Filename to copy the custom init script to inside the build context
+        required: false
+        type: string
+        default: DockerInit.sh
+      supported_platforms:
+        description: Comma-separated platforms supported by this image
+        required: false
+        type: string
+        default: linux/amd64,linux/arm64/v8,linux/386
+      default_platforms:
+        description: Comma-separated platforms used when no explicit platform input is selected
+        required: false
+        type: string
+        default: linux/amd64
+      build_args:
+        description: Optional multiline Docker build args
+        required: false
+        type: string
+        default: ""
+      repo_tag_build_arg:
+        description: Optional build-arg name that receives the upstream release tag
+        required: false
+        type: string
+        default: ""
+      network:
+        description: Optional Docker build network mode
+        required: false
+        type: string
+        default: ""
+      build_amd64:
+        description: Build linux/amd64
+        required: false
+        type: boolean
+        default: true
+      build_arm64:
+        description: Build linux/arm64/v8
+        required: false
+        type: boolean
+        default: false
+      build_386:
+        description: Build linux/386
+        required: false
+        type: boolean
+        default: false
+      build_skip:
+        description: Skip build
+        required: false
+        type: boolean
+        default: false
+      build_force:
+        description: Build even if release tag already exists
+        required: false
+        type: boolean
+        default: false
+      release_skip:
+        description: Skip GitHub release creation
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  prepare:
+    name: Prepare ${{ inputs.project_name }}
+    runs-on: ubuntu-latest
+    outputs:
+      repo_tag: ${{ steps.tags.outputs.repo_tag }}
+      release_tag: ${{ steps.tags.outputs.release_tag }}
+      release_url: ${{ steps.release-check.outputs.release_url }}
+      skip: ${{ steps.release-check.outputs.skip }}
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq curl git tree
+
+      - name: Fetch latest upstream release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_EXT_NAME: ${{ inputs.repo_ext_name }}
+        run: |
+          set -euo pipefail
+          response="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${REPO_EXT_NAME}/releases/latest")"
+          latest_tag="$(jq -r '.tag_name // empty' <<< "${response}")"
+          if [ -z "${latest_tag}" ] || [ "${latest_tag}" = "null" ]; then
+            echo "Unable to resolve latest release tag for ${REPO_EXT_NAME}" >&2
+            exit 1
+          fi
+          echo "latest_tag=${latest_tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Compute release tags
+        id: tags
+        env:
+          LATEST_TAG: ${{ steps.upstream.outputs.latest_tag }}
+          RELEASE_TAG_PREFIX: ${{ inputs.release_tag_prefix }}
+        run: |
+          set -euo pipefail
+          echo "repo_tag=${LATEST_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=${RELEASE_TAG_PREFIX}_${LATEST_TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check existing release
+        id: release-check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.tags.outputs.release_tag }}
+          BUILD_SKIP: ${{ inputs.build_skip }}
+          BUILD_FORCE: ${{ inputs.build_force }}
+        run: |
+          set -euo pipefail
+          if [ "${BUILD_SKIP}" = "true" ]; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            echo "release_url=" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          release_url="$(gh release view "${RELEASE_TAG}" --json url -q '.url' 2>/dev/null || true)"
+          echo "release_url=${release_url}" >> "${GITHUB_OUTPUT}"
+
+          if [ -n "${release_url}" ] && [ "${BUILD_FORCE}" != "true" ]; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "skip=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  build:
+    name: Build and Push ${{ inputs.project_name }}
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'false'
+    outputs:
+      platforms: ${{ steps.platforms.outputs.platforms }}
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Select platforms
+        id: platforms
+        env:
+          BUILD_AMD64: ${{ inputs.build_amd64 }}
+          BUILD_ARM64: ${{ inputs.build_arm64 }}
+          BUILD_386: ${{ inputs.build_386 }}
+          SUPPORTED_PLATFORMS: ${{ inputs.supported_platforms }}
+          DEFAULT_PLATFORMS: ${{ inputs.default_platforms }}
+        run: |
+          set -euo pipefail
+          requested=()
+          [ "${BUILD_AMD64}" = "true" ] && requested+=("linux/amd64")
+          [ "${BUILD_ARM64}" = "true" ] && requested+=("linux/arm64/v8")
+          [ "${BUILD_386}" = "true" ] && requested+=("linux/386")
+
+          if [ "${#requested[@]}" -eq 0 ]; then
+            IFS=',' read -ra requested <<< "${DEFAULT_PLATFORMS}"
+          fi
+
+          platforms=()
+          for platform in "${requested[@]}"; do
+            platform="$(xargs <<< "${platform}")"
+            [ -z "${platform}" ] && continue
+            if grep -Fqx "${platform}" < <(tr ',' '\n' <<< "${SUPPORTED_PLATFORMS}" | xargs -n1); then
+              platforms+=("${platform}")
+            else
+              echo "Skipping unsupported platform: ${platform}"
+            fi
+          done
+
+          if [ "${#platforms[@]}" -eq 0 ]; then
+            echo "No supported platforms selected" >&2
+            exit 1
+          fi
+
+          joined="$(IFS=,; echo "${platforms[*]}")"
+          echo "platforms=${joined}" >> "${GITHUB_OUTPUT}"
+          echo "Selected platforms: ${joined}"
+
+      - name: Prepare build context
+        env:
+          PREPARE_MODE: ${{ inputs.prepare_mode }}
+          REPO_EXT_URL: ${{ inputs.repo_ext_url }}
+          REPO_TAG: ${{ needs.prepare.outputs.repo_tag }}
+          WORKDIR: ${{ inputs.workdir }}
+          CUSTOM_DOCKERFILE: ${{ inputs.custom_dockerfile }}
+          CUSTOM_ENTRYPOINT: ${{ inputs.custom_entrypoint }}
+          CUSTOM_INIT: ${{ inputs.custom_init }}
+          ENTRYPOINT_TARGET: ${{ inputs.entrypoint_target }}
+          INIT_TARGET: ${{ inputs.init_target }}
+        run: |
+          set -euo pipefail
+
+          if [ "${PREPARE_MODE}" = "clone-release" ]; then
+            if [ -z "${REPO_EXT_URL}" ]; then
+              echo "repo_ext_url is required for clone-release mode" >&2
+              exit 1
+            fi
+            rm -rf "${WORKDIR}"
+            git clone "${REPO_EXT_URL}" "${WORKDIR}"
+            git -C "${WORKDIR}" checkout "${REPO_TAG}"
+          elif [ "${PREPARE_MODE}" = "in-repo-context" ]; then
+            mkdir -p "${WORKDIR}"
+          else
+            echo "Unsupported prepare_mode: ${PREPARE_MODE}" >&2
+            exit 1
+          fi
+
+          cp "${CUSTOM_DOCKERFILE}" "${WORKDIR}/Dockerfile"
+
+          if [ -n "${CUSTOM_ENTRYPOINT}" ]; then
+            cp "${CUSTOM_ENTRYPOINT}" "${WORKDIR}/${ENTRYPOINT_TARGET}"
+          fi
+
+          if [ -n "${CUSTOM_INIT}" ] && [ -f "${CUSTOM_INIT}" ]; then
+            cp "${CUSTOM_INIT}" "${WORKDIR}/${INIT_TARGET}"
+          fi
+
+          test -f "${WORKDIR}/Dockerfile"
+          tree -a -L 2 "${WORKDIR}" || true
+
+      - name: Prepare Docker build args
+        id: build-args
+        env:
+          BUILD_ARGS: ${{ inputs.build_args }}
+          REPO_TAG_BUILD_ARG: ${{ inputs.repo_tag_build_arg }}
+          REPO_TAG: ${{ needs.prepare.outputs.repo_tag }}
+        run: |
+          set -euo pipefail
+          {
+            echo "build_args<<EOF"
+            if [ -n "${BUILD_ARGS}" ]; then
+              printf '%s\n' "${BUILD_ARGS}"
+            fi
+            if [ -n "${REPO_TAG_BUILD_ARG}" ]; then
+              printf '%s=%s\n' "${REPO_TAG_BUILD_ARG}" "${REPO_TAG}"
+            fi
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        if: contains(steps.platforms.outputs.platforms, 'arm64') || contains(steps.platforms.outputs.platforms, '386')
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "DockerHub login failed after retries" >&2
+          exit 1
+
+      - name: Build and push Docker image
+        if: inputs.network == ''
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.workdir }}
+          platforms: ${{ steps.platforms.outputs.platforms }}
+          push: true
+          tags: |
+            ${{ inputs.docker_repo }}:latest
+            ${{ inputs.docker_repo }}:${{ needs.prepare.outputs.repo_tag }}
+          build-args: ${{ steps.build-args.outputs.build_args }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Docker image with custom network
+        if: inputs.network != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.workdir }}
+          platforms: ${{ steps.platforms.outputs.platforms }}
+          push: true
+          tags: |
+            ${{ inputs.docker_repo }}:latest
+            ${{ inputs.docker_repo }}:${{ needs.prepare.outputs.repo_tag }}
+          build-args: ${{ steps.build-args.outputs.build_args }}
+          network: ${{ inputs.network }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: Release ${{ inputs.project_name }}
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build
+    if: needs.prepare.outputs.skip == 'false' && needs.build.result == 'success' && inputs.release_skip == false
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up QEMU
+        if: contains(needs.build.outputs.platforms, 'arm64') || contains(needs.build.outputs.platforms, '386')
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: Export image archives
+        env:
+          DOCKER_REPO: ${{ inputs.docker_repo }}
+          REPO_TAG: ${{ needs.prepare.outputs.repo_tag }}
+          PLATFORMS: ${{ needs.build.outputs.platforms }}
+          ARTIFACT_PREFIX: ${{ inputs.artifact_prefix }}
+          TAR_FOLDER: ./tar-files
+        run: |
+          set -euo pipefail
+          mkdir -p "${TAR_FOLDER}"
+
+          IFS=',' read -ra platform_list <<< "${PLATFORMS}"
+          for platform in "${platform_list[@]}"; do
+            platform="$(xargs <<< "${platform}")"
+            [ -z "${platform}" ] && continue
+            safe_platform="${platform//\//-}"
+            archive="${TAR_FOLDER}/${ARTIFACT_PREFIX}-${REPO_TAG}-${safe_platform}.tar.gz"
+
+            docker pull --platform "${platform}" "${DOCKER_REPO}:${REPO_TAG}"
+            docker tag "${DOCKER_REPO}:${REPO_TAG}" "${DOCKER_REPO}:${REPO_TAG}-${safe_platform}"
+            docker save "${DOCKER_REPO}:${REPO_TAG}-${safe_platform}" | gzip > "${archive}"
+            echo "Created ${archive}"
+          done
+
+          docker pull "${DOCKER_REPO}:latest"
+          docker save "${DOCKER_REPO}:latest" | gzip > "${TAR_FOLDER}/${ARTIFACT_PREFIX}-latest.tar.gz"
+
+      - name: Create release body
+        env:
+          DOCKER_REPO: ${{ inputs.docker_repo }}
+          REPO_TAG: ${{ needs.prepare.outputs.repo_tag }}
+          PLATFORMS: ${{ needs.build.outputs.platforms }}
+          PROJECT_NAME: ${{ inputs.project_name }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Автоматическая сборка ${PROJECT_NAME}."
+            echo
+            echo "Docker image:"
+            echo "\`${DOCKER_REPO}:${REPO_TAG}\`"
+            echo "\`${DOCKER_REPO}:latest\`"
+            echo
+            echo "Platforms:"
+            IFS=',' read -ra platform_list <<< "${PLATFORMS}"
+            for platform in "${platform_list[@]}"; do
+              echo "- \`${platform}\`"
+            done
+          } > release-body.md
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          RELEASE_NAME_PREFIX: ${{ inputs.release_name_prefix }}
+          REPO_TAG: ${{ needs.prepare.outputs.repo_tag }}
+        run: |
+          set -euo pipefail
+          gh release create "${RELEASE_TAG}" \
+            --title "${RELEASE_NAME_PREFIX} Release ${REPO_TAG}" \
+            --notes-file release-body.md \
+            ./tar-files/*.tar.gz
+
+      - name: Delete old workflow runs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current_run_id="${{ github.run_id }}"
+          gh run list --workflow "${{ github.workflow }}" --limit 100 --json databaseId \
+            --jq '.[].databaseId' \
+            | grep -v "^${current_run_id}$" \
+            | tail -n +11 \
+            | xargs -r -n1 gh run delete

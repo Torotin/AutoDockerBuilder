@@ -1,256 +1,98 @@
-name: Caddy-L4 Docker Self-Hosted
-
-concurrency:
-  group: repo-${{ github.repository }}
-  cancel-in-progress: false
-
-permissions:
-  contents: write
+name: Caddy-L4-Docker-SelfHosted
 
 on:
   workflow_dispatch:
     inputs:
       build_amd64:
-        description: 'Build for amd64'
-        type: boolean
+        description: Build linux/amd64
+        required: false
         default: true
+        type: boolean
       build_arm64:
-        description: 'Build for arm64/v8'
-        type: boolean
+        description: Build linux/arm64/v8
+        required: false
         default: false
+        type: boolean
       build_386:
-        description: 'Build for 386'
-        type: boolean
+        description: Ignored for Caddy-L4 because linux/386 is unsupported
+        required: false
         default: false
+        type: boolean
       build_skip:
-        description: 'Skip build (for testing)'
-        type: boolean
+        description: Skip build
+        required: false
         default: false
+        type: boolean
       build_force:
-        description: 'Force build (for testing)'
-        type: boolean
+        description: Force build even if release exists
+        required: false
         default: false
+        type: boolean
       release_skip:
-        description: 'Skip release (for testing)'
-        type: boolean
+        description: Skip GitHub release creation
+        required: false
         default: false
+        type: boolean
   workflow_call:
+    inputs:
+      build_amd64:
+        required: false
+        default: true
+        type: boolean
+      build_arm64:
+        required: false
+        default: false
+        type: boolean
+      build_386:
+        required: false
+        default: false
+        type: boolean
+      build_skip:
+        required: false
+        default: false
+        type: boolean
+      build_force:
+        required: false
+        default: false
+        type: boolean
+      release_skip:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  repo_ext_git_url: https://github.com/caddyserver/caddy.git
-  repo_ext_git_release_name: caddyserver/caddy
-  DOCKER_REPO: torotin/caddy-l4
-  WORKDIR: .
-  TAR_FOLDER: ./tar-files
-  ARTIFACT_DIR: ./artifacts
-  CUSTOM_DOCKERFILE: ./bin/caddy/dockerfile
-  CUSTOM_ENTRYPOINT: ./bin/caddy/DockerEntrypoint.sh
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  prepare:
-    runs-on: self-hosted
-    outputs:
-      repo_tag:     ${{ steps.check.outputs.repo_tag }}
-      combined_tag: ${{ steps.check.outputs.combined_tag }}
-      skip:         ${{ steps.check.outputs.skip }}
-    steps:
-      # - name: 🧹 Clean workspace
-      #   run: sudo find . -mindepth 1 -delete
-
-      - name: Install deps
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq curl tree
-
-      - uses: actions/checkout@v4
-        with:
-          clean: true
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Fetch latest upstream tag
-        id: check
-        shell: bash
-        run: |
-          latest_tag=$(curl -s https://api.github.com/repos/${{ env.repo_ext_git_release_name }}/releases/latest | jq -r '.tag_name')
-          if [ -z "$latest_tag" ] || [ "$latest_tag" = "null" ]; then
-            echo "Cannot fetch latest tag" >&2
-            exit 1
-          fi
-          combined="Caddy-L4_${latest_tag}"
-
-          echo "repo_tag=$latest_tag"    >> $GITHUB_OUTPUT
-          echo "combined_tag=$combined"  >> $GITHUB_OUTPUT
-
-          skip=false
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then
-            skip=false
-          elif [[ "${{ github.event.inputs.build_force }}" == "true" ]]; then
-            skip=false
-          elif [[ "${{ github.event.inputs.build_skip }}" == "true" ]]; then
-            skip=true
-          elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
-            skip=true
-          fi
-          echo "skip=$skip" | tee -a $GITHUB_OUTPUT
-
-  build:
-    needs: prepare
-    if: ${{ needs.prepare.outputs.skip != 'true' && github.event.inputs.build_skip != 'true' }}
-    runs-on: self-hosted
-    outputs:
-      repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
-      platforms: ${{ steps.platforms.outputs.platforms }}
-      skip:      ${{ needs.prepare.outputs.skip }}
-    steps:
-      - name: Compose selected platforms
-        id: platforms
-        run: |
-          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
-            requested="linux/amd64"
-          else
-            requested=""
-            [ "${{ github.event.inputs.build_amd64 }}" = "true" ] && requested="${requested},linux/amd64"
-            [ "${{ github.event.inputs.build_arm64 }}" = "true" ] && requested="${requested},linux/arm64/v8"
-            [ "${{ github.event.inputs.build_386 }}" = "true" ] && requested="${requested},linux/386"
-            requested="${requested#,}"
-          fi
-
-          platforms=""
-          for p in ${requested//,/ }; do
-            if [ "$p" = "linux/386" ]; then
-              echo "Skipping unsupported platform: $p (caddy base image has no linux/386 manifest)" >&2
-              continue
-            fi
-            platforms="${platforms},${p}"
-          done
-          platforms="${platforms#,}"
-
-          if [ -z "$platforms" ]; then
-            echo "No supported platforms selected after filtering (linux/386 is unsupported)" >&2
-            exit 1
-          fi
-
-          echo "Selected platforms: $platforms"
-          echo "platforms=$platforms" >> $GITHUB_OUTPUT
-
-      - name: Prepare artifact folders
-        run: |
-          mkdir -p ${{ env.ARTIFACT_DIR }} ${{ env.TAR_FOLDER }}
-          echo "${{ steps.platforms.outputs.platforms }}" > "${{ env.ARTIFACT_DIR }}/platforms.txt"
-          echo "${{ needs.prepare.outputs.repo_tag }}"      > "${{ env.ARTIFACT_DIR }}/repo_tag.txt"
-
-      - name: Replace Dockerfile & scripts
-        run: |
-          set -e
-          if [ -f "${{ env.CUSTOM_DOCKERFILE }}" ]; then
-            cp "${{ env.CUSTOM_DOCKERFILE }}" Dockerfile
-          fi
-          if [ -f "${{ env.CUSTOM_ENTRYPOINT }}" ]; then
-            cp "${{ env.CUSTOM_ENTRYPOINT }}" DockerEntrypoint.sh
-          fi
-
-      - name: Verify Dockerfile exists
-        run: |
-          set -e
-          if [ ! -f "Dockerfile" ]; then
-            echo "Dockerfile not found!" >&2
-            exit 1
-          fi
-
-      - name: Set up Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: DockerHub Login (retry)
-        run: |
-          for i in {1..5}; do
-            echo "Attempt $i"
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin \
-              && break
-            sleep 5
-          done
-
-      - name: Setup QEMU
-        if: needs.prepare.outputs.skip == 'false'
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: all
-
-      - name: Build & Push Multi-arch Image
-        uses: docker/build-push-action@v5
-        with:
-          builder:   ${{ steps.buildx.outputs.name }}
-          context:   ${{ env.WORKDIR }}
-          platforms: ${{ steps.platforms.outputs.platforms }}
-          push:      true
-          tags: |
-            ${{ env.DOCKER_REPO }}:latest
-            ${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}
-          cache-from: |
-            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache
-          cache-to: |
-            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache,mode=max
-
-  release:
-    needs: build
-    if: ${{ needs.build.outputs.skip == 'false' && github.event.inputs.release_skip == 'false' }}
-    runs-on: self-hosted
-    steps:
-      - name: Ensure artifact dirs
-        run: mkdir -p "${{ env.TAR_FOLDER }}" "${{ env.ARTIFACT_DIR }}"
-
-      - name: Archive per-platform images
-        run: |
-          IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
-          for p in "${PLS[@]}"; do
-            safe=${p//\//-}
-            img="${{ env.DOCKER_REPO }}:${{ needs.build.outputs.repo_tag }}"
-            echo "Pulling $img for $p"
-            docker pull --platform "$p" "$img"
-            out="${{ env.TAR_FOLDER }}/caddy-l4-${{ needs.build.outputs.repo_tag }}-${safe}.tar"
-            echo "Saving $img ($p) -> $out"
-            docker save -o "$out" "$img"
-            gzip -f "$out"
-            echo "${out}.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
-          done
-
-      - name: Archive latest image
-        run: |
-          img="${{ env.DOCKER_REPO }}:latest"
-          docker pull "$img"
-          docker save -o "${{ env.TAR_FOLDER }}/caddy-l4-latest.tar" "$img"
-          gzip "${{ env.TAR_FOLDER }}/caddy-l4-latest.tar"
-          echo "${{ env.TAR_FOLDER }}/caddy-l4-latest.tar.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
-
-      - name: Generate Markdown list of platforms
-        id: platforms-md
-        run: |
-          list=""
-          IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
-          for p in "${PLS[@]}"; do
-            safe=${p//\//-}
-            list+="- \`caddy-l4_${safe}\` → [hub](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
-          done
-          echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$list" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: Caddy-L4_${{ needs.build.outputs.repo_tag }}
-          name: "Caddy-L4 Release ${{ needs.build.outputs.repo_tag }}"
-          token: ${{ github.token }}
-          prerelease: false
-          body: |
-            ### 📦 Release Notes
-            - ![](https://img.shields.io/docker/pulls/${{ env.DOCKER_REPO }}.svg?style=flat-square)
-            - **[DockerHub](https://hub.docker.com/r/${{ env.DOCKER_REPO }})**
-            - Pull: `docker pull ${{ env.DOCKER_REPO }}:latest`
-            ### 🏷 Supported Platforms
-            ${{ steps.platforms-md.outputs.platforms_list }}
-            ### 📥 Artifacts
-            Attached tar archives for each platform.
-          files: |
-            ${{ env.TAR_FOLDER }}/*.tar.gz
+  docker:
+    uses: ./.github/workflows/_docker-project-build.yml
+    with:
+      project_name: Caddy-L4
+      release_tag_prefix: Caddy-L4
+      release_name_prefix: Caddy-L4
+      artifact_prefix: caddy-l4
+      repo_ext_name: caddyserver/caddy
+      docker_repo: torotin/caddy-l4
+      prepare_mode: in-repo-context
+      workdir: .
+      custom_dockerfile: ./bin/caddy/dockerfile
+      custom_entrypoint: ./bin/caddy/DockerEntrypoint.sh
+      default_platforms: linux/amd64
+      supported_platforms: linux/amd64,linux/arm64/v8
+      build_amd64: ${{ inputs.build_amd64 }}
+      build_arm64: ${{ inputs.build_arm64 }}
+      build_386: ${{ inputs.build_386 }}
+      build_skip: ${{ inputs.build_skip }}
+      build_force: ${{ inputs.build_force }}
+      release_skip: ${{ inputs.release_skip }}
+    secrets: inherit

@@ -1,324 +1,105 @@
 name: 3x-ui-Docker-SelfHosted
 
-concurrency:
-  group: repo-${{ github.repository }}
-  cancel-in-progress: false
-
-permissions:
-  contents: write
-
 on:
   workflow_dispatch:
     inputs:
       build_amd64:
-        description: 'Build for amd64'
-        type: boolean
+        description: Build linux/amd64
+        required: false
         default: true
+        type: boolean
       build_arm64:
-        description: 'Build for arm64/v8'
-        type: boolean
+        description: Build linux/arm64/v8
+        required: false
         default: false
+        type: boolean
       build_386:
-        description: 'Build for 386'
-        type: boolean
+        description: Build linux/386
+        required: false
         default: false
+        type: boolean
       build_skip:
-        description: 'Skip build (for testing)'
-        type: boolean
+        description: Skip build
+        required: false
         default: false
+        type: boolean
       build_force:
-        description: 'Force build (for testing)'
-        type: boolean
+        description: Force build even if release exists
+        required: false
         default: false
+        type: boolean
       release_skip:
-        description: 'Skip realese (for testing)'
-        type: boolean
+        description: Skip GitHub release creation
+        required: false
         default: false
+        type: boolean
   workflow_call:
     inputs:
       build_amd64:
         required: false
-        type: boolean
         default: true
+        type: boolean
       build_arm64:
         required: false
-        type: boolean
         default: false
+        type: boolean
       build_386:
         required: false
-        type: boolean
         default: false
+        type: boolean
       build_skip:
         required: false
-        type: boolean
         default: false
+        type: boolean
       build_force:
         required: false
-        type: boolean
         default: false
+        type: boolean
       release_skip:
         required: false
-        type: boolean
         default: false
+        type: boolean
     secrets:
       DOCKERHUB_USERNAME:
         required: true
       DOCKERHUB_TOKEN:
         required: true
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  REPO_EXT_URL: https://github.com/MHSanaei/3x-ui.git
-  REPO_EXT_NAME: MHSanaei/3x-ui
-  DOCKER_REPO: torotin/3x-ui
-  WORKDIR: ./WORKDIR
-  TAR_FOLDER: ./tar-files
-  ARTIFACT_DIR: ./artifacts
-  CUSTOM_DOCKERFILE: ./bin/3x-ui/dockerfile
-  CUSTOM_DOCKERINIT: ./bin/3x-ui/DockerInit.sh
-  CUSTOM_ENTRYPOINT: ./bin/3x-ui/DockerEntrypoint.sh
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  prepare:
-    runs-on: self-hosted
-    outputs:
-      repo_tag: ${{ steps.check.outputs.repo_tag }}
-      skip:     ${{ steps.check.outputs.skip }}
-    steps:
-      # - name: 🧹 Clean workspace
-      #   run: sudo find . -mindepth 1 -delete
-
-      - name: Install deps
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends jq curl tree
-
-      - uses: actions/checkout@v4
-        with:
-          clean: true
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: 📦 Fetch latest upstream tag
-        id: check
-        run: |
-          # 1) Получаем тег
-          latest_tag=$(
-            curl -sSL \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              https://api.github.com/repos/${{ env.REPO_EXT_NAME }}/releases/latest \
-            | jq -r '.tag_name'
-          )
-          if [ -z "$latest_tag" ] || [ "$latest_tag" = "null" ]; then
-            echo "❌ Cannot fetch latest tag" >&2
-            exit 1
-          fi
-          combined="3x-ui_${latest_tag}"
-
-          # 2) Прокидываем в outputs
-          echo "repo_tag=$latest_tag"    >> $GITHUB_OUTPUT
-          echo "combined_tag=$combined"  >> $GITHUB_OUTPUT
-
-          # 3) По умолчанию skip=true, если уже есть этот tэг
-          skip=false
-
-          # 4) Если это push в ветку test — всегда пересобирать
-          #    Учитываем UI-флаги: build-skip и build_force
-          #    skip=true, если уже есть этот tэг
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then
-            skip=false
-          elif [[ "${{ inputs.build_force }}" == "true" ]]; then
-            skip=false
-          elif [[ "${{ inputs.build_skip }}" == "true" ]]; then
-            skip=true
-          elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
-            skip=true
-          fi
-
-          # 6) Выводим итог
-          echo "skip=$skip"
-          echo "skip=$skip" >> $GITHUB_OUTPUT
-        shell: bash
-
-  build:
-    needs: prepare
-    if: ${{ needs.prepare.outputs.skip != 'true' && inputs.build_skip != 'true' }}
-    runs-on: self-hosted
-    outputs:
-      repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
-      platforms: ${{ steps.platforms.outputs.platforms }}
-      skip:      ${{ needs.prepare.outputs.skip }}
-    steps:
-      - name: Compose selected platforms
-        id: platforms
-        run: |
-          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
-            platforms="linux/amd64,linux/386"
-          else
-            platforms=""
-            [ "${{ inputs.build_amd64 }}" = "true" ] && platforms="${platforms},linux/amd64"
-            [ "${{ inputs.build_arm64 }}" = "true" ] && platforms="${platforms},linux/arm64/v8"
-            [ "${{ inputs.build_386 }}" = "true" ] && platforms="${platforms},linux/386"
-            platforms="${platforms#,}"
-          fi
-          if [ -z "$platforms" ]; then
-            platforms="linux/amd64"
-            echo "No platforms selected, defaulting to $platforms"
-          fi
-          echo "Selected platforms: $platforms"
-          echo "platforms=$platforms" >> $GITHUB_OUTPUT
-
-      - name: Clone external repo
-        run: |
-          rm -rf "${{ env.WORKDIR }}"
-          git clone ${{ env.REPO_EXT_URL }} ${{ env.WORKDIR }}
-          cd ${{ env.WORKDIR }}
-          git checkout ${{ needs.prepare.outputs.repo_tag }}
-
-      - name: Prepare artifact folders
-        run: |
-          mkdir -p ${{ env.ARTIFACT_DIR }} ${{ env.TAR_FOLDER }}
-          echo "${{ steps.platforms.outputs.platforms }}" > "${{ env.ARTIFACT_DIR }}/platforms.txt"
-          echo "${{ needs.prepare.outputs.repo_tag }}"      > "${{ env.ARTIFACT_DIR }}/repo_tag.txt"
-
-      - name: Replace Dockerfile & scripts
-        run: |
-          [ -f "$CUSTOM_DOCKERFILE" ]      && cp "$CUSTOM_DOCKERFILE"      "$WORKDIR/Dockerfile"
-          [ -f "$CUSTOM_ENTRYPOINT" ] && cp "$CUSTOM_ENTRYPOINT" "$WORKDIR/DockerEntrypoint.sh"
-          [ -f "$CUSTOM_DOCKERINIT" ]       && cp "$CUSTOM_DOCKERINIT"       "$WORKDIR/DockerInit.sh"
-          test -f "$WORKDIR/Dockerfile" || { echo "❌ Dockerfile missing"; exit 1; }
-
-      - name: Set up Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: DockerHub Login (retry)
-        run: |
-          for i in {1..5}; do
-            echo "Attempt $i"
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin \
-              && break
-            sleep 5
-          done
-
-      - name: Setup QEMU
-        if: needs.prepare.outputs.skip == 'false'
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: all
-
-      - name: Build & Push Multi-arch Image
-        uses: docker/build-push-action@v5
-        with:
-          builder:   ${{ steps.buildx.outputs.name }}
-          context:   ${{ env.WORKDIR }}
-          platforms: ${{ steps.platforms.outputs.platforms }}
-          network:   host
-          push:      true
-          build-args: |
-            ALPINE_MIRROR=http://mirror.yandex.ru/mirrors/alpine
-            GOPROXY=https://goproxy.cn,https://goproxy.io,direct
-            GOSUMDB=sum.golang.google.cn
-          tags: |
-            ${{ env.DOCKER_REPO }}:latest
-            ${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}
-          cache-from: |
-            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache
-          cache-to: |
-            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache,mode=max
-
-  release:
-    needs: [prepare, build]
-    if: ${{ needs.prepare.outputs.skip != 'true' && needs.build.result == 'success' && (github.event_name != 'workflow_dispatch' || !inputs.release_skip) }}
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          clean: true
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Clone external repo (release)
-        run: |
-          rm -rf "${{ env.WORKDIR }}"
-          git clone ${{ env.REPO_EXT_URL }} ${{ env.WORKDIR }}
-          cd ${{ env.WORKDIR }}
-          git checkout ${{ needs.prepare.outputs.repo_tag }}
-
-      - name: Replace Dockerfile & scripts (release)
-        run: |
-          [ -f "$CUSTOM_DOCKERFILE" ]  && cp "$CUSTOM_DOCKERFILE"  "$WORKDIR/Dockerfile"
-          [ -f "$CUSTOM_ENTRYPOINT" ] && cp "$CUSTOM_ENTRYPOINT" "$WORKDIR/DockerEntrypoint.sh"
-          [ -f "$CUSTOM_DOCKERINIT" ] && cp "$CUSTOM_DOCKERINIT" "$WORKDIR/DockerInit.sh"
-          test -f "$WORKDIR/Dockerfile" || { echo "? Dockerfile missing"; exit 1; }
-
-      - name: Export per-platform OCI archives
-        run: |
-          set -euo pipefail
-          mkdir -p "${{ env.TAR_FOLDER }}" "${{ env.ARTIFACT_DIR }}"
-          IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
-          for p in "${PLS[@]}"; do
-            safe=${p//\//-}
-            out="${{ env.TAR_FOLDER }}/oci-3x-ui-${{ needs.build.outputs.repo_tag }}-${safe}.tar"
-            echo "Preparing OCI archive for $p -> $out"
-            docker pull --platform "$p" "${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}"
-            docker tag "${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}" "${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}-$safe"
-            docker save -o "$out" "${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}-$safe"
-            docker image rm "${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}-$safe" >/dev/null 2>&1 || true
-            docker image rm "${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}" >/dev/null 2>&1 || true
-            gzip -f "$out"
-            echo "${out}.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
-          done
-
-      - name: ?? Archive latest image
-        run: |
-          set -euo pipefail
-          IMAGE="${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}"
-          OUT="${{ env.TAR_FOLDER }}/latest"
-          mkdir -p "$OUT"
-          docker pull "$IMAGE"
-          docker tag "$IMAGE" "${{ env.DOCKER_REPO }}:latest"
-          docker save -o "$OUT/image.tar" "${{ env.DOCKER_REPO }}:latest"
-          echo "latest" > "$OUT/repo_tag.txt"
-          tar -czf "${{ env.TAR_FOLDER }}/3x-ui-latest.tar.gz" -C "$OUT" .
-          rm -rf "$OUT"
-          docker image rm "${{ env.DOCKER_REPO }}:latest" >/dev/null 2>&1 || true
-          docker image rm "$IMAGE" >/dev/null 2>&1 || true
-          echo "${{ env.TAR_FOLDER }}/3x-ui-latest.tar.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
-          
-      - name: 📋 Generate Markdown list of platforms
-        id: platforms-md
-        run: |
-          set -e
-          list=""
-          IFS=',' read -ra ARGS <<< "${{ needs.build.outputs.platforms }}"
-          for p in "${ARGS[@]}"; do
-            safe=$(echo "$p" | sed 's#/#-#g')
-            list+="- $p - [\`${safe}\`](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
-          done
-          echo "platforms_list<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$list" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: 🚀 Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: 3x-ui_${{ needs.build.outputs.repo_tag }}
-          name: "3X-UI Release ${{ needs.build.outputs.repo_tag }}"
-          token: ${{ github.token }}
-          prerelease: false
-          body: |
-            ### 📦 Release Notes
-            - ![](https://img.shields.io/docker/pulls/${{ env.DOCKER_REPO }}.svg?style=flat-square)
-            - **[DockerHub](https://hub.docker.com/r/${{ env.DOCKER_REPO }})**
-            - 🎯 Pull: `docker pull ${{ env.DOCKER_REPO }}:latest`
-
-            ### 🏷 Supported Platforms
-            ${{ steps.platforms-md.outputs.platforms_list }}
-
-            ### 👇 Manual downloads (attachments below)
-          files: |
-            ${{ env.TAR_FOLDER }}/*.tar.gz
+  docker:
+    uses: ./.github/workflows/_docker-project-build.yml
+    with:
+      project_name: 3x-ui
+      release_tag_prefix: 3x-ui
+      release_name_prefix: 3X-UI
+      artifact_prefix: 3x-ui
+      repo_ext_url: https://github.com/MHSanaei/3x-ui.git
+      repo_ext_name: MHSanaei/3x-ui
+      docker_repo: torotin/3x-ui
+      prepare_mode: clone-release
+      workdir: ./WORKDIR
+      custom_dockerfile: ./bin/3x-ui/dockerfile
+      custom_entrypoint: ./bin/3x-ui/DockerEntrypoint.sh
+      custom_init: ./bin/3x-ui/DockerInit.sh
+      default_platforms: linux/amd64,linux/386
+      supported_platforms: linux/amd64,linux/arm64/v8,linux/386
+      network: host
+      build_args: |
+        ALPINE_MIRROR=http://mirror.yandex.ru/mirrors/alpine
+        GOPROXY=https://goproxy.cn,https://goproxy.io,direct
+        GOSUMDB=sum.golang.google.cn
+      build_amd64: ${{ inputs.build_amd64 }}
+      build_arm64: ${{ inputs.build_arm64 }}
+      build_386: ${{ inputs.build_386 }}
+      build_skip: ${{ inputs.build_skip }}
+      build_force: ${{ inputs.build_force }}
+      release_skip: ${{ inputs.release_skip }}
+    secrets: inherit
