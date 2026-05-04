@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 go build -o usque -ldflags="-s -w" .
 # scratch is not enough here because register/enroll need a cert store.
 FROM alpine:latest
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates curl
 
 WORKDIR /app
 
