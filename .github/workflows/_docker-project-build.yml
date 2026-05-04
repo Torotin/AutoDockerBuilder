@@ -387,6 +387,21 @@ jobs:
         with:
           platforms: all
 
+      - name: Login to DockerHub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "DockerHub login failed after retries" >&2
+          exit 1
+
       - name: Export image archives
         env:
           DOCKER_REPO: ${{ inputs.docker_repo }}
