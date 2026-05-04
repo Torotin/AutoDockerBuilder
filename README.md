@@ -102,18 +102,30 @@ dockcheck_v0.7.8
 <docker_repo>:<upstream_tag>
 ```
 
-Используется cache GitHub Actions:
+Используется комбинированный BuildKit cache:
 
 ```text
-cache-from: type=gha
-cache-to: type=gha,mode=max
+cache-from:
+  type=gha,scope=<artifact_prefix>
+  type=registry,ref=<docker_repo>:buildcache
+
+cache-to:
+  type=gha,mode=max,scope=<artifact_prefix>
+  type=registry,ref=<docker_repo>:buildcache,mode=max
 ```
+
+`type=gha` ускоряет повторные сборки внутри GitHub Actions.
+
+`type=registry` сохраняет BuildKit cache в Docker Hub как служебный tag `<docker_repo>:buildcache`.
+
+`scope=<artifact_prefix>` нужен, чтобы разные проекты не перетирали общий GitHub Actions cache друг друга.
 
 #### `release`
 
 * pull опубликованных образов;
 * экспорт per-platform архивов в `tar.gz`;
 * экспорт `latest` архива;
+* генерация release body со ссылками на upstream repository, upstream release и workflow run;
 * создание GitHub Release (если не включён `release_skip`);
 * прикрепление архивов к релизу;
 * удаление старых workflow runs.
@@ -205,6 +217,14 @@ workdir: .
 <docker_repo>:<upstream_tag>
 ```
 
+Для BuildKit cache также публикуется служебный tag:
+
+```text
+<docker_repo>:buildcache
+```
+
+Этот tag не предназначен для запуска контейнера. Он используется Docker Buildx как registry cache.
+
 Пример:
 
 ```bash
@@ -228,6 +248,24 @@ docker pull torotin/dockcheck:v0.7.8
 
 ```text
 <release_name_prefix> Release <upstream_tag>
+```
+
+Release body содержит:
+
+```text
+Автоматическая Docker-сборка `<project_name>` из upstream release `<upstream_tag>`.
+
+### Sources
+- Upstream repository: https://github.com/<upstream_owner>/<upstream_repo>
+- Upstream release: https://github.com/<upstream_owner>/<upstream_repo>/releases/tag/<upstream_tag>
+- Build workflow: https://github.com/<owner>/<repo>/actions/runs/<run_id>
+
+### Images
+`<docker_repo>:<upstream_tag>`
+`<docker_repo>:latest`
+
+### Platforms
+- `<platform>`
 ```
 
 К релизу прикладываются архивы:
@@ -295,7 +333,7 @@ ubuntu-latest
 orchestrator
 ```
 
-Для него в `.github/actions-runner-controller.yaml` указан label:
+Для локальной проверки workflow через `actionlint` кастомный label описан в `.github/actionlint.yaml`:
 
 ```yaml
 self-hosted-runner:

@@ -360,8 +360,12 @@ jobs:
             ${{ inputs.docker_repo }}:latest
             ${{ inputs.docker_repo }}:${{ needs.prepare.outputs.repo_tag }}
           build-args: ${{ steps.build-args.outputs.build_args }}
-          cache-from: type=gha,scope=${{ inputs.artifact_prefix }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.artifact_prefix }}
+          cache-from: |
+            type=gha,scope=${{ inputs.artifact_prefix }}
+            type=registry,ref=${{ inputs.docker_repo }}:buildcache
+          cache-to: |
+            type=gha,mode=max,scope=${{ inputs.artifact_prefix }}
+            type=registry,ref=${{ inputs.docker_repo }}:buildcache,mode=max
 
       - name: Build and push Docker image with custom network
         if: inputs.network != ''
@@ -375,8 +379,12 @@ jobs:
             ${{ inputs.docker_repo }}:${{ needs.prepare.outputs.repo_tag }}
           build-args: ${{ steps.build-args.outputs.build_args }}
           network: ${{ inputs.network }}
-          cache-from: type=gha,scope=${{ inputs.artifact_prefix }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.artifact_prefix }}
+          cache-from: |
+            type=gha,scope=${{ inputs.artifact_prefix }}
+            type=registry,ref=${{ inputs.docker_repo }}:buildcache
+          cache-to: |
+            type=gha,mode=max,scope=${{ inputs.artifact_prefix }}
+            type=registry,ref=${{ inputs.docker_repo }}:buildcache,mode=max
 
   release:
     name: Release ${{ inputs.project_name }}
