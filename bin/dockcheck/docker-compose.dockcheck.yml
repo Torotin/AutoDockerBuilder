@@ -7,7 +7,8 @@ services:
     init: true
     working_dir: /_dockcheck
     env_file:
-      - ${DOCKCHECK_ENV_FILE:-/compose.d/.env}
+      - path: ${DOCKCHECK_ENV_FILE:-/compose.d/.env}
+        required: false
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /compose.d:/compose.d:ro
