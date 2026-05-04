@@ -360,8 +360,8 @@ jobs:
             ${{ inputs.docker_repo }}:latest
             ${{ inputs.docker_repo }}:${{ needs.prepare.outputs.repo_tag }}
           build-args: ${{ steps.build-args.outputs.build_args }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ inputs.artifact_prefix }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.artifact_prefix }}
 
       - name: Build and push Docker image with custom network
         if: inputs.network != ''
@@ -375,8 +375,8 @@ jobs:
             ${{ inputs.docker_repo }}:${{ needs.prepare.outputs.repo_tag }}
           build-args: ${{ steps.build-args.outputs.build_args }}
           network: ${{ inputs.network }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ inputs.artifact_prefix }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.artifact_prefix }}
 
   release:
     name: Release ${{ inputs.project_name }}
@@ -445,16 +445,23 @@ jobs:
           REPO_TAG: ${{ needs.prepare.outputs.repo_tag }}
           PLATFORMS: ${{ needs.build.outputs.platforms }}
           PROJECT_NAME: ${{ inputs.project_name }}
+          REPO_EXT_NAME: ${{ inputs.repo_ext_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           {
-            echo "Автоматическая сборка ${PROJECT_NAME}."
+            echo "Автоматическая Docker-сборка \`${PROJECT_NAME}\` из upstream release \`${REPO_TAG}\`."
             echo
-            echo "Docker image:"
+            echo "### Sources"
+            echo "- Upstream repository: https://github.com/${REPO_EXT_NAME}"
+            echo "- Upstream release: https://github.com/${REPO_EXT_NAME}/releases/tag/${REPO_TAG}"
+            echo "- Build workflow: ${RUN_URL}"
+            echo
+            echo "### Images"
             echo "\`${DOCKER_REPO}:${REPO_TAG}\`"
             echo "\`${DOCKER_REPO}:latest\`"
             echo
-            echo "Platforms:"
+            echo "### Platforms"
             IFS=',' read -ra platform_list <<< "${PLATFORMS}"
             for platform in "${platform_list[@]}"; do
               echo "- \`${platform}\`"
