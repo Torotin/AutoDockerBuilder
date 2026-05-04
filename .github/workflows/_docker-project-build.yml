@@ -147,7 +147,7 @@ jobs:
       skip: ${{ steps.release-check.outputs.skip }}
     steps:
       - name: Checkout current repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -216,7 +216,7 @@ jobs:
       platforms: ${{ steps.platforms.outputs.platforms }}
     steps:
       - name: Checkout current repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
@@ -332,7 +332,7 @@ jobs:
           platforms: all
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to DockerHub
         env:
@@ -351,7 +351,7 @@ jobs:
 
       - name: Build and push Docker image
         if: inputs.network == ''
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.workdir }}
           platforms: ${{ steps.platforms.outputs.platforms }}
@@ -369,7 +369,7 @@ jobs:
 
       - name: Build and push Docker image with custom network
         if: inputs.network != ''
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.workdir }}
           platforms: ${{ steps.platforms.outputs.platforms }}
@@ -395,7 +395,7 @@ jobs:
     if: needs.prepare.outputs.skip == 'false' && needs.build.result == 'success' && inputs.release_skip == false
     steps:
       - name: Checkout current repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
