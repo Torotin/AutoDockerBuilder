@@ -1,0 +1,17 @@
+services:
+  dockcheck:
+    image: ${DOCKCHECK_IMAGE:-torotin/dockcheck:latest}
+    container_name: dockcheck
+    hostname: ${WEBDOMAIN:-dockcheck}
+    restart: unless-stopped
+    init: true
+    working_dir: /_dockcheck
+    env_file:
+      - ${DOCKCHECK_ENV_FILE:-/compose.d/.env}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /compose.d:/compose.d:ro
+      - /opt/dockcheck:/_dockcheck
+      - /etc/localtime:/etc/localtime:ro
+    security_opt:
+      - no-new-privileges=true

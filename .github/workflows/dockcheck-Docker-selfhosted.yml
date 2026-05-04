@@ -1,0 +1,326 @@
+name: dockcheck-Docker-SelfHosted
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: repo-${{ github.repository }}
+  cancel-in-progress: false
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_amd64:
+        description: 'Build for amd64'
+        type: boolean
+        default: true
+      build_arm64:
+        description: 'Build for arm64/v8'
+        type: boolean
+        default: false
+      build_skip:
+        description: 'Skip build (for testing)'
+        type: boolean
+        default: false
+      build_force:
+        description: 'Force build (for testing)'
+        type: boolean
+        default: false
+      release_skip:
+        description: 'Skip release (for testing)'
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      build_amd64:
+        required: false
+        type: boolean
+        default: true
+      build_arm64:
+        required: false
+        type: boolean
+        default: false
+      build_skip:
+        required: false
+        type: boolean
+        default: false
+      build_force:
+        required: false
+        type: boolean
+        default: false
+      release_skip:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REPO_EXT_URL: https://github.com/mag37/dockcheck.git
+  REPO_EXT_NAME: mag37/dockcheck
+  DOCKER_REPO: torotin/dockcheck
+  WORKDIR: ./WORKDIR
+  TAR_FOLDER: ./tar-files
+  ARTIFACT_DIR: ./artifacts
+  CUSTOM_DOCKERFILE: ./bin/dockcheck/Dockerfile
+  CUSTOM_ENTRYPOINT: ./bin/dockcheck/entrypoint.sh
+
+jobs:
+  prepare:
+    runs-on: self-hosted
+    outputs:
+      repo_tag: ${{ steps.check.outputs.repo_tag }}
+      skip:     ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Install deps
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends jq curl git tree
+
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Fetch latest upstream release
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest_tag="$(
+            curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${{ github.token }}" \
+              https://api.github.com/repos/${{ env.REPO_EXT_NAME }}/releases/latest \
+            | jq -r '.tag_name'
+          )"
+          if [[ -z "$latest_tag" || "$latest_tag" == "null" ]]; then
+            echo "Cannot fetch latest tag" >&2
+            exit 1
+          fi
+          combined="dockcheck_${latest_tag}"
+
+          echo "repo_tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "combined_tag=$combined" >> "$GITHUB_OUTPUT"
+
+          skip=false
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/test" ]]; then
+            skip=false
+          elif [[ "${{ inputs.build_force }}" == "true" ]]; then
+            skip=false
+          elif [[ "${{ inputs.build_skip }}" == "true" ]]; then
+            skip=true
+          elif git rev-parse "refs/tags/$combined" >/dev/null 2>&1; then
+            skip=true
+          fi
+
+          echo "skip=$skip"
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.skip != 'true' && inputs.build_skip != 'true' }}
+    runs-on: self-hosted
+    outputs:
+      repo_tag:  ${{ needs.prepare.outputs.repo_tag }}
+      platforms: ${{ steps.platforms.outputs.platforms }}
+      skip:      ${{ needs.prepare.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 1
+
+      - name: Compose selected platforms
+        id: platforms
+        shell: bash
+        run: |
+          set -euo pipefail
+          platforms=""
+          [ "${{ inputs.build_amd64 }}" = "true" ] && platforms="${platforms},linux/amd64"
+          [ "${{ inputs.build_arm64 }}" = "true" ] && platforms="${platforms},linux/arm64/v8"
+          platforms="${platforms#,}"
+          if [ -z "$platforms" ]; then
+            platforms="linux/amd64"
+            echo "No platforms selected, defaulting to $platforms"
+          fi
+          echo "Selected platforms: $platforms"
+          echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
+
+      - name: Clone external repo
+        run: |
+          rm -rf "${{ env.WORKDIR }}"
+          git clone ${{ env.REPO_EXT_URL }} ${{ env.WORKDIR }}
+          cd ${{ env.WORKDIR }}
+          git checkout ${{ needs.prepare.outputs.repo_tag }}
+
+      - name: Prepare artifact folders
+        run: |
+          mkdir -p ${{ env.ARTIFACT_DIR }} ${{ env.TAR_FOLDER }}
+          echo "${{ steps.platforms.outputs.platforms }}" > "${{ env.ARTIFACT_DIR }}/platforms.txt"
+          echo "${{ needs.prepare.outputs.repo_tag }}" > "${{ env.ARTIFACT_DIR }}/repo_tag.txt"
+
+      - name: Replace Dockerfile and entrypoint
+        run: |
+          cp "$CUSTOM_DOCKERFILE" "$WORKDIR/Dockerfile"
+          cp "$CUSTOM_ENTRYPOINT" "$WORKDIR/entrypoint.sh"
+          test -f "$WORKDIR/Dockerfile" || { echo "Dockerfile missing"; exit 1; }
+          test -f "$WORKDIR/entrypoint.sh" || { echo "entrypoint.sh missing"; exit 1; }
+
+      - name: Set up Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: DockerHub Login
+        run: |
+          for i in {1..5}; do
+            echo "Attempt $i"
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin && break
+            sleep 5
+          done
+
+      - name: Setup QEMU
+        if: contains(steps.platforms.outputs.platforms, 'arm64')
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          builder:   ${{ steps.buildx.outputs.name }}
+          context:   ${{ env.WORKDIR }}
+          platforms: ${{ steps.platforms.outputs.platforms }}
+          push:      true
+          build-args: |
+            DOCKCHECK_REF=${{ needs.prepare.outputs.repo_tag }}
+          tags: |
+            ${{ env.DOCKER_REPO }}:latest
+            ${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.repo_tag }}
+          cache-from: |
+            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache
+          cache-to: |
+            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache,mode=max
+
+  release:
+    needs: build
+    if: ${{ needs.build.outputs.skip != 'true' && inputs.release_skip != 'true' }}
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Clone external repo
+        run: |
+          rm -rf "${{ env.WORKDIR }}"
+          git clone ${{ env.REPO_EXT_URL }} ${{ env.WORKDIR }}
+          cd ${{ env.WORKDIR }}
+          git checkout ${{ needs.build.outputs.repo_tag }}
+
+      - name: Replace Dockerfile and entrypoint
+        run: |
+          cp "$CUSTOM_DOCKERFILE" "$WORKDIR/Dockerfile"
+          cp "$CUSTOM_ENTRYPOINT" "$WORKDIR/entrypoint.sh"
+          test -f "$WORKDIR/Dockerfile" || { echo "Dockerfile missing"; exit 1; }
+          test -f "$WORKDIR/entrypoint.sh" || { echo "entrypoint.sh missing"; exit 1; }
+
+      - name: Set up Buildx
+        id: buildx-release
+        uses: docker/setup-buildx-action@v3
+
+      - name: Setup QEMU
+        if: contains(needs.build.outputs.platforms, 'arm64')
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Export per-platform OCI archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ env.TAR_FOLDER }}" "${{ env.ARTIFACT_DIR }}"
+          IFS=',' read -ra PLS <<< "${{ needs.build.outputs.platforms }}"
+          for p in "${PLS[@]}"; do
+            safe=${p//\//-}
+            out="${{ env.TAR_FOLDER }}/oci-dockcheck-${{ needs.build.outputs.repo_tag }}-${safe}.tar"
+            echo "Building OCI archive for $p -> $out"
+            docker buildx build \
+              --builder "${{ steps.buildx-release.outputs.name }}" \
+              --platform "$p" \
+              --progress plain \
+              --pull \
+              --build-arg "DOCKCHECK_REF=${{ needs.build.outputs.repo_tag }}" \
+              --output "type=oci,dest=${out}" \
+              -t "${{ env.DOCKER_REPO }}:${{ needs.build.outputs.repo_tag }}-$safe" \
+              "${{ env.WORKDIR }}"
+            gzip -f "$out"
+            echo "${out}.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
+          done
+
+      - name: Archive latest image
+        run: |
+          set -e
+          IMAGE="${{ env.DOCKER_REPO }}:latest"
+          OUT="${{ env.TAR_FOLDER }}/latest"
+          mkdir -p "$OUT"
+          docker pull "$IMAGE"
+          docker save -o "$OUT/image.tar" "$IMAGE"
+          echo "latest" > "$OUT/repo_tag.txt"
+          tar -czf "${{ env.TAR_FOLDER }}/dockcheck-latest.tar.gz" -C "$OUT" .
+          rm -rf "$OUT"
+          echo "${{ env.TAR_FOLDER }}/dockcheck-latest.tar.gz" >> "${{ env.ARTIFACT_DIR }}/artifacts.txt"
+
+      - name: Generate Markdown list of platforms
+        id: platforms-md
+        run: |
+          set -e
+          list=""
+          IFS=',' read -ra ARGS <<< "${{ needs.build.outputs.platforms }}"
+          for p in "${ARGS[@]}"; do
+            safe=$(echo "$p" | sed 's#/#-#g')
+            list+="- $p - [\`${safe}\`](https://hub.docker.com/r/${{ env.DOCKER_REPO }}/tags?name=$safe)\n"
+          done
+          echo "platforms_list<<EOF" >> "$GITHUB_OUTPUT"
+          echo -e "$list" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dockcheck_${{ needs.build.outputs.repo_tag }}
+          name: "dockcheck Release ${{ needs.build.outputs.repo_tag }}"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          prerelease: false
+          body: |
+            ### Release Notes
+            - DockerHub: https://hub.docker.com/r/${{ env.DOCKER_REPO }}
+            - Pull: `docker pull ${{ env.DOCKER_REPO }}:latest`
+
+            ### Supported Platforms
+            ${{ steps.platforms-md.outputs.platforms_list }}
+
+            ### Manual downloads
+            See attached archives below.
+          files: |
+            ${{ env.TAR_FOLDER }}/*.tar.gz
+
+      - name: Delete old workflow runs
+        uses: EminDevNoth/workflow-runs-remover@v1.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            [
+              { "conclusions": ["failure","skipped","cancelled"] },
+              { "conclusions": ["success"], "age": 30, "limit": 5 }
+            ]

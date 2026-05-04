@@ -12,6 +12,7 @@
 - Warp Plus (upstream: bepass-org/warp-plus) → Docker Hub: `torotin/warp-plus`
 - 3x-ui (upstream: MHSanaei/3x-ui) → Docker Hub: `torotin/3x-ui`
 - usque (upstream: Diniboy1123/usque) → Docker Hub: `torotin/usque`
+- dockcheck (upstream: mag37/dockcheck) → Docker Hub: `torotin/dockcheck`
 
 Файлы для сборки (Dockerfile/entrypoint) для некоторых проектов лежат в `bin/*`.
 
@@ -54,6 +55,7 @@
 - `WarpPlus-Docker-Selfhosted.yml`
 - `3x-ui-Docker-selfhosted.yml`
 - `usque-Docker-selfhosted.yml`
+- `dockcheck-Docker-selfhosted.yml`
 
 ---
 
@@ -77,10 +79,12 @@
   - `WarpPlus-Docker-Selfhosted.yml` — сборка Warp Plus; дополнительно складывает бинарники в `bin/warp/` перед сборкой.
   - `3x-ui-Docker-selfhosted.yml` — сборка 3x-ui из апстрима.
   - `usque-Docker-selfhosted.yml` — сборка usque из апстрима.
+  - `dockcheck-Docker-selfhosted.yml` — сборка dockcheck из апстрима.
 - `bin/`
   - `caddy/` — кастомный `dockerfile` и `DockerEntrypoint.sh`.
   - `warp/` — `Dockerfile`, `DockerEntrypoint.sh`, шаблон `config.json.template`, вспомогательные скрипты и README по использованию.
   - `3x-ui/` — кастомный `dockerfile`, `DockerEntrypoint.sh`, `DockerInit.sh`.
+  - `dockcheck/` — `Dockerfile`, `entrypoint.sh` и пример `docker-compose` для запуска dockcheck по расписанию.
 
 Примечание: некоторые подкаталоги могут быть добавлены/изменены по мере необходимости в конкретных workflow.
 
@@ -89,6 +93,7 @@
 ## Использование образов
 
 - Примеры docker-compose и переменные окружения для Warp Plus — в `bin/warp/ReadMe_RU.md`.
+- Пример docker-compose и переменные окружения для dockcheck — в `bin/dockcheck/docker-compose.dockcheck.yml` и `bin/dockcheck/.env.template`.
 - Caddy L4 и 3x-ui используют стандартные параметры запуска; при необходимости ориентируйтесь на `Dockerfile` и `DockerEntrypoint.sh` в соответствующих `bin/*`.
 
 ---
@@ -118,7 +123,7 @@
 
 ## Благодарности
 
-- Авторам и контрибьюторам проектов: `caddyserver/caddy`, `bepass-org/warp-plus`, `MHSanaei/3x-ui`, `Diniboy1123/usque`.
+- Авторам и контрибьюторам проектов: `caddyserver/caddy`, `bepass-org/warp-plus`, `MHSanaei/3x-ui`, `Diniboy1123/usque`, `mag37/dockcheck`.
 - Сообществу GitHub Actions и авторам action’ов: `docker/*`, `actions/*`, `actions/github-script`.
 
 ---
@@ -126,4 +131,3 @@
 ## Лицензия
 
 Лицензия этого репозитория не задана явно. Использование сторонних проектов регулируется их собственными лицензиями в соответствующих апстрим‑репозиториях.
-

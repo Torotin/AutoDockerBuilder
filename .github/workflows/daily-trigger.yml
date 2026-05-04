@@ -40,6 +40,7 @@ jobs:
               { workflow: 'Caddy-L4-Docker-selfhosted.yml', inputs: {} },
               { workflow: 'WarpPlus-Docker-Selfhosted.yml', inputs: {} },
               { workflow: 'usque-Docker-selfhosted.yml',    inputs: {} },
+              { workflow: 'dockcheck-Docker-selfhosted.yml', inputs: {} },
             ];
 
             // Тайминги/ретраи
@@ -197,6 +198,8 @@ jobs:
                 prefixes: ['bin/3x-ui/', '.github/workflows/3x-ui-Docker-selfhosted.yml'] },
               { workflow: 'usque-Docker-selfhosted.yml',
                 prefixes: ['bin/usque/', '.github/workflows/usque-Docker-selfhosted.yml'] },
+              { workflow: 'dockcheck-Docker-selfhosted.yml',
+                prefixes: ['bin/dockcheck/', '.github/workflows/dockcheck-Docker-selfhosted.yml'] },
               { workflow: 'WarpPlus-Docker-Selfhosted.yml',
                 prefixes: ['bin/warp/', '.github/workflows/WarpPlus-Docker-Selfhosted.yml'] },
             ];
