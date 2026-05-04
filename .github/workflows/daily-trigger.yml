@@ -5,7 +5,7 @@ on:
     - cron: "0 3 * * *"
   workflow_dispatch:
   push:
-    branches: [main, test]
+    branches: [main, test, dev, prod]
     paths:
       - "bin/**"
       - ".github/workflows/**"
@@ -222,6 +222,26 @@ jobs:
           token: ${{ github.token }}
           filters: |
             [
-              { "conclusions": ["failure", "skipped", "cancelled"] },
-              { "conclusions": ["success"], "age": 30, "limit": 5 }
+              {
+                  "conclusions": [
+                      "failure",
+                      "skipped",
+                      "cancelled"
+                  ]
+              },
+              {
+                  "conclusions": [
+                      "success"
+                  ],
+                  "age": 15,
+                  "options": {
+                      "age": ">"
+                  },
+                  "branches": [
+                      "main",
+                      "prod",
+                      "dev",
+                      "test"
+                  ]
+              }
             ]
