@@ -28,6 +28,11 @@ on:
         required: false
         default: false
         type: boolean
+      recreate_release:
+        description: Delete existing GitHub Release before creating a new one
+        required: false
+        default: false
+        type: boolean
       release_skip:
         description: Skip GitHub release creation
         required: false
@@ -52,6 +57,10 @@ on:
         default: false
         type: boolean
       build_force:
+        required: false
+        default: false
+        type: boolean
+      recreate_release:
         required: false
         default: false
         type: boolean
@@ -101,5 +110,6 @@ jobs:
       build_386: ${{ inputs.build_386 }}
       build_skip: ${{ inputs.build_skip }}
       build_force: ${{ inputs.build_force }}
+      recreate_release: ${{ inputs.recreate_release }}
       release_skip: ${{ inputs.release_skip }}
     secrets: inherit

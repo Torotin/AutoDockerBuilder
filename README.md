@@ -1,133 +1,517 @@
 # AutoDockerBuilder
 
-Автоматическая сборка и публикация Docker-образов внешних проектов с помощью GitHub Actions и self‑hosted раннеров. Репозиторий ежедневно проверяет новые релизы апстримов, собирает образы (в т.ч. мульти‑арх), публикует их в Docker Hub и прикладывает артефакты к GitHub Release.
+Автоматическая сборка и публикация Docker-образов внешних проектов через GitHub Actions.
+
+Репозиторий отслеживает последние upstream-релизы, собирает Docker images, публикует их в Docker Hub и создаёт GitHub Release с архивами образов.
+
+> Под "release" в документе подразумевается GitHub Release вместе с соответствующим git tag.
 
 ---
 
 ## Что собирается
 
-Поддерживаются несколько проектов, каждый со своим workflow:
+| Проект | Upstream | Docker Hub | Workflow |
+| --- | --- | --- | --- |
+| Caddy-L4 | `caddyserver/caddy` | `torotin/caddy-l4` | `Caddy-L4-Docker-selfhosted.yml` |
+| 3x-ui | `MHSanaei/3x-ui` | `torotin/3x-ui` | `3x-ui-Docker-selfhosted.yml` |
+| usque | `Diniboy1123/usque` | `torotin/usque` | `usque-Docker-selfhosted.yml` |
+| dockcheck | `mag37/dockcheck` | `torotin/dockcheck` | `dockcheck-Docker-selfhosted.yml` |
+| Warp Plus | `bepass-org/warp-plus` | `torotin/warp-plus` | `WarpPlus-Docker-Selfhosted.yml` |
 
-- Caddy L4 (upstream: caddyserver/caddy) → Docker Hub: `torotin/caddy-l4`
-- Warp Plus (upstream: bepass-org/warp-plus) → Docker Hub: `torotin/warp-plus`
-- 3x-ui (upstream: MHSanaei/3x-ui) → Docker Hub: `torotin/3x-ui`
-- usque (upstream: Diniboy1123/usque) → Docker Hub: `torotin/usque`
-- dockcheck (upstream: mag37/dockcheck) → Docker Hub: `torotin/dockcheck`
-
-Файлы для сборки (Dockerfile/entrypoint) для некоторых проектов лежат в `bin/*`.
-
----
-
-## Как это работает
-
-- Ежедневный оркестратор: `.github/workflows/daily-trigger.yml` по расписанию (03:00 UTC) последовательно запускает все сборочные workflow и ждёт их завершения.
-- Определение версии: каждый workflow запрашивает последний tag из upstream Releases и формирует собственный tag в этом репозитории в формате `<name>_<upstreamTag>` (например, `Caddy-L4_v2.7.6`).
-- Пропуск, если уже собрано: если такой tag уже есть — сборка пропускается (если не принудительно).
-- Сборка и публикация:
-  - Сборка для выбранных платформ (по умолчанию чаще всего `linux/amd64`, при ручном запуске можно включать `arm64/v8`, `386`).
-  - Публикация в Docker Hub под тегами `latest` и `<upstreamTag>`.
-  - Подготовка артефактов: сохранение образов по платформам в `tar.gz` и публикация в GitHub Release.
+> Важно: Warp Plus пока остаётся отдельным workflow и не переведён на общий `_docker-project-build.yml`.
+> Warp Plus не использует общий `_docker-project-build.yml`,
+> поэтому логика `build_force` и `recreate_release` может отличаться и реализована отдельно.
 
 ---
 
-## Требования
+## Архитектура workflow
 
-- Self‑hosted раннер(ы):
-  - Для сборки: метка `self-hosted` (Linux, установлен Docker/QEMU/Buildx, доступ к сети Docker Hub).
-  - Для оркестратора: метка `orchestrator` (выполняет диспатч и ожидание результатов).
-- Доступ в Docker Hub:
-  - Секреты репозитория: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (токен/патоль приложения).
+### 1. Оркестратор
 
----
+Файл:
 
-## Ручной запуск workflow
+```text
+.github/workflows/daily-trigger.yml
+```
 
-Каждый сборочный workflow поддерживает `workflow_dispatch` с параметрами:
+Запускается:
 
-- build_amd64 / build_arm64 / build_386: выбрать целевые платформы.
-- build_skip: пропустить стадию сборки (для отладки).
-- build_force: принудительно собрать, даже если tag уже существует.
-- release_skip: пропустить публикацию релиза/артефактов.
+* по расписанию: каждый день в `03:00 UTC`;
+* вручную через `workflow_dispatch`;
+* при push в ветки `main` или `test`, если изменены файлы в `bin/**` или `.github/workflows/**`.
 
-Запускать можно из вкладки Actions, выбрав нужный workflow:
+Оркестратор последовательно запускает проектные workflow и ждёт завершения каждого.
 
-- `Caddy-L4-Docker-selfhosted.yml`
-- `WarpPlus-Docker-Selfhosted.yml`
-- `3x-ui-Docker-selfhosted.yml`
-- `usque-Docker-selfhosted.yml`
-- `dockcheck-Docker-selfhosted.yml`
+При push он запускает только те workflow, чьи файлы были затронуты. Например:
+
+* изменение `bin/caddy/**` запускает Caddy-L4;
+* изменение `bin/3x-ui/**` запускает 3x-ui;
+* изменение общего `_docker-project-build.yml` запускает проекты, которые от него зависят.
 
 ---
 
-## Настройка
+### 2. Общий reusable workflow
 
-1) Форкните репозиторий (или используйте как есть).
-2) Добавьте секреты в Settings → Secrets and variables → Actions:
-   - `DOCKERHUB_USERNAME`
-   - `DOCKERHUB_TOKEN`
-3) Поднимите self‑hosted раннеры с нужными метками и доступом к Docker.
-4) При необходимости измените целевые образы и апстримы в соответствующих workflow (переменные `DOCKER_REPO`, `REPO_EXT_NAME`, `REPO_EXT_URL` и т.д.).
-5) При желании настройте расписание в `daily-trigger.yml`.
+Файл:
+
+```text
+.github/workflows/_docker-project-build.yml
+```
+
+Содержит три основные стадии:
+
+1. `prepare`
+2. `build`
+3. `release`
+
+#### `prepare`
+
+* checkout текущего репозитория;
+* установка `jq`, `curl`, `git`, `tree`;
+* получение latest release tag из upstream GitHub Releases;
+* формирование release tag в формате:
+
+```text
+<release_tag_prefix>_<upstream_tag>
+```
+
+Примеры:
+
+```text
+Caddy-L4_v2.10.0
+3x-ui_v2.5.10
+dockcheck_v0.7.8
+```
+
+* проверка существующего GitHub Release;
+* пропуск сборки, если release уже существует и не включён `build_force`
+  (не применяется при push, так как build_force устанавливается автоматически)
+
+#### `build`
+
+* выбор платформ;
+* подготовка build context;
+* подстановка кастомного Dockerfile / entrypoint / init script;
+* подготовка Docker build args;
+* включение QEMU, если нужны `arm64` или `386`;
+* сборка через Docker Buildx;
+* push в Docker Hub с тегами:
+
+```text
+<docker_repo>:latest
+<docker_repo>:<upstream_tag>
+```
+
+Используется cache GitHub Actions:
+
+```text
+cache-from: type=gha
+cache-to: type=gha,mode=max
+```
+
+#### `release`
+
+* pull опубликованных образов;
+* экспорт per-platform архивов в `tar.gz`;
+* экспорт `latest` архива;
+* создание GitHub Release (если не включён `release_skip`);
+* прикрепление архивов к релизу;
+* удаление старых workflow runs.
+
+---
+
+## Поддерживаемые режимы подготовки build context
+
+Общий workflow поддерживает два режима.
+
+### `clone-release`
+
+Используется для проектов, где нужно клонировать upstream-репозиторий и собрать образ из его release tag.
+
+Требует:
+
+```yaml
+repo_ext_url: https://github.com/<owner>/<repo>.git
+repo_ext_name: <owner>/<repo>
+prepare_mode: clone-release
+workdir: ./WORKDIR
+```
+
+Применяется для:
+
+* `3x-ui`
+* `usque`
+* `dockcheck`
+
+### `in-repo-context`
+
+Используется, когда build context находится в текущем репозитории.
+
+Требует:
+
+```yaml
+prepare_mode: in-repo-context
+workdir: .
+```
+
+Применяется для:
+
+* `Caddy-L4`
+
+---
+
+## Ручной запуск
+
+> Важно: при запуске через API (`workflow_dispatch`) значения boolean-параметров передаются как строки (`'true'` / `'false'`).
+
+Каждый проектный workflow можно запустить вручную во вкладке **Actions**.
+
+Общие параметры:
+
+| Параметр | Назначение |
+| --- | --- |
+| `build_amd64` | собрать `linux/amd64` |
+| `build_arm64` | собрать `linux/arm64/v8` |
+| `build_386` | собрать `linux/386`, если проект поддерживает |
+| `build_skip` | пропустить сборку |
+| `build_force` | собрать даже при существующем GitHub Release |
+| `recreate_release` | удалить существующий GitHub Release перед созданием нового |
+| `release_skip` | не создавать GitHub Release |
+
+Для `dockcheck` доступны только `amd64` и `arm64`.
+
+Для `Caddy-L4` параметр `build_386` игнорируется, потому что `linux/386` не поддерживается.
+
+---
+
+## Платформы по проектам
+
+| Проект    | Default platforms          | Supported platforms                          |
+| --------- | -------------------------- | -------------------------------------------- |
+| Caddy-L4  | `linux/amd64`              | `linux/amd64`, `linux/arm64/v8`              |
+| 3x-ui     | `linux/amd64`, `linux/386` | `linux/amd64`, `linux/arm64/v8`, `linux/386` |
+| usque     | `linux/amd64`, `linux/386` | `linux/amd64`, `linux/arm64/v8`, `linux/386` |
+| dockcheck | `linux/amd64`              | `linux/amd64`, `linux/arm64/v8`              |
+| Warp Plus | `linux/amd64`              | `linux/amd64`                                |
+
+---
+
+## Docker Hub теги
+
+После успешной сборки публикуются:
+
+```text
+<docker_repo>:latest
+<docker_repo>:<upstream_tag>
+```
+
+Пример:
+
+```bash
+docker pull torotin/dockcheck:latest
+docker pull torotin/dockcheck:v0.7.8
+```
+
+---
+
+## GitHub Releases
+
+Для каждого собранного upstream-релиза создаётся GitHub Release.
+
+Формат tag:
+
+```text
+<release_tag_prefix>_<upstream_tag>
+```
+
+Формат title:
+
+```text
+<release_name_prefix> Release <upstream_tag>
+```
+
+К релизу прикладываются архивы:
+
+```text
+<artifact_prefix>-<upstream_tag>-<platform>.tar.gz
+<artifact_prefix>-latest.tar.gz
+```
+
+Пример:
+
+```text
+dockcheck-v0.7.8-linux-amd64.tar.gz
+dockcheck-latest.tar.gz
+```
+
+---
+
+## Секреты
+
+В настройках репозитория должны быть заданы:
+
+```text
+DOCKERHUB_USERNAME
+DOCKERHUB_TOKEN
+```
+
+Они используются для Docker Hub login и push образов.
+
+---
+
+## Permissions
+
+Проектные workflow используют:
+
+```yaml
+permissions:
+  contents: write
+  actions: write
+```
+
+`contents: write` нужен для создания GitHub Releases.
+
+`actions: write` нужен для работы с workflow runs и cleanup.
+
+Warp Plus дополнительно использует:
+
+```yaml
+packages: write
+```
+
+---
+
+## Self-hosted runner
+
+После рефакторинга основные reusable workflow jobs выполняются на:
+
+```text
+ubuntu-latest
+```
+
+Оркестратор `daily-trigger.yml` выполняется на runner с label:
+
+```text
+orchestrator
+```
+
+Для него в `.github/actions-runner-controller.yaml` указан label:
+
+```yaml
+self-hosted-runner:
+  labels:
+    - orchestrator
+```
 
 ---
 
 ## Структура репозитория
 
-- `.github/workflows/`
-  - `daily-trigger.yml` — оркестратор ежедневных запусков, выполняет `workflow_dispatch` для сборочных сценариев и ждёт их завершения.
-  - `Caddy-L4-Docker-selfhosted.yml` — сборка Caddy L4 из последнего релиза апстрима.
-  - `WarpPlus-Docker-Selfhosted.yml` — сборка Warp Plus; дополнительно складывает бинарники в `bin/warp/` перед сборкой.
-  - `3x-ui-Docker-selfhosted.yml` — сборка 3x-ui из апстрима.
-  - `usque-Docker-selfhosted.yml` — сборка usque из апстрима.
-  - `dockcheck-Docker-selfhosted.yml` — сборка dockcheck из апстрима.
-- `bin/`
-  - `caddy/` — кастомный `dockerfile` и `DockerEntrypoint.sh`.
-  - `warp/` — `Dockerfile`, `DockerEntrypoint.sh`, шаблон `config.json.template`, вспомогательные скрипты и README по использованию.
-  - `3x-ui/` — кастомный `dockerfile`, `DockerEntrypoint.sh`, `DockerInit.sh`.
-  - `dockcheck/` — `Dockerfile`, `entrypoint.sh` и пример `docker-compose` для запуска dockcheck по расписанию.
+```text
+.github/
+  workflows/
+    _docker-project-build.yml        # общий reusable Docker pipeline
+    daily-trigger.yml                # оркестратор
+    Caddy-L4-Docker-selfhosted.yml   # wrapper для Caddy-L4
+    3x-ui-Docker-selfhosted.yml      # wrapper для 3x-ui
+    usque-Docker-selfhosted.yml      # wrapper для usque
+    dockcheck-Docker-selfhosted.yml  # wrapper для dockcheck
+    WarpPlus-Docker-Selfhosted.yml   # отдельный workflow для Warp Plus
 
-Примечание: некоторые подкаталоги могут быть добавлены/изменены по мере необходимости в конкретных workflow.
+bin/
+  caddy/
+    dockerfile
+    DockerEntrypoint.sh
 
----
+  3x-ui/
+    dockerfile
+    DockerEntrypoint.sh
+    DockerInit.sh
 
-## Использование образов
+  usque/
+    Dockerfile
+    DockerEntrypoint.sh
+    DockerInit.sh
 
-- Примеры docker-compose и переменные окружения для Warp Plus — в `bin/warp/ReadMe_RU.md`.
-- Пример docker-compose и переменные окружения для dockcheck — в `bin/dockcheck/docker-compose.dockcheck.yml` и `bin/dockcheck/.env.template`.
-- Caddy L4 и 3x-ui используют стандартные параметры запуска; при необходимости ориентируйтесь на `Dockerfile` и `DockerEntrypoint.sh` в соответствующих `bin/*`.
+  dockcheck/
+    Dockerfile
+    entrypoint.sh
+    docker-compose.dockcheck.yml
+    .env.template
 
----
-
-## Типовой пайплайн (сокращённо)
-
-1) Оркестратор запускает workflow проекта →
-2) Workflow берёт последнюю версию из upstream Releases →
-3) Проверяет, есть ли уже `<name>_<tag>` в тегах этого репо →
-4) Скачивает/готовит исходники/бинарники (если нужно) →
-5) Сборка образа (Buildx/QEMU) →
-6) Push в Docker Hub (`latest` и `<tag>`) →
-7) Сохранение per‑platform `tar.gz` → публикация в GitHub Release.
-
----
-
-## Частые вопросы
-
-- Почему сборка пропущена?
-  - В репозитории уже есть tag вида `<name>_<upstreamTag>`, и не выставлен `build_force`.
-- Где искать готовые образы?
-  - В Docker Hub, namespace `torotin/*` (см. список выше).
-- Можно ли изменить namespace/репозиторий?
-  - Да, поменяйте `DOCKER_REPO` в соответствующем workflow.
+  warp/
+    Dockerfile
+    DockerEntrypoint.sh
+    config.json.template
+    ...
+```
 
 ---
 
-## Благодарности
+## Добавление нового проекта
 
-- Авторам и контрибьюторам проектов: `caddyserver/caddy`, `bepass-org/warp-plus`, `MHSanaei/3x-ui`, `Diniboy1123/usque`, `mag37/dockcheck`.
-- Сообществу GitHub Actions и авторам action’ов: `docker/*`, `actions/*`, `actions/github-script`.
+Чтобы добавить новый проект на общий pipeline:
+
+1. Создать каталог в `bin/<project>/`.
+2. Добавить Dockerfile и необходимые scripts.
+3. Создать новый workflow в `.github/workflows/`.
+4. Вызвать reusable workflow:
+
+```yaml
+jobs:
+  docker:
+    uses: ./.github/workflows/_docker-project-build.yml
+    with:
+      project_name: example
+      release_tag_prefix: example
+      release_name_prefix: example
+      artifact_prefix: example
+      repo_ext_url: https://github.com/example/example.git
+      repo_ext_name: example/example
+      docker_repo: torotin/example
+      prepare_mode: clone-release
+      workdir: ./WORKDIR
+      custom_dockerfile: ./bin/example/Dockerfile
+      custom_entrypoint: ./bin/example/entrypoint.sh
+      default_platforms: linux/amd64
+      supported_platforms: linux/amd64,linux/arm64/v8
+      build_amd64: ${{ inputs.build_amd64 }}
+      build_arm64: ${{ inputs.build_arm64 }}
+      build_386: false
+      build_skip: ${{ inputs.build_skip }}
+      build_force: ${{ inputs.build_force }}
+      recreate_release: ${{ inputs.recreate_release }}
+      release_skip: ${{ inputs.release_skip }}
+    secrets: inherit
+```
+
+5. Добавить маршрут в `daily-trigger.yml`.
+
+---
+
+## Особенности отдельных проектов
+
+### Caddy-L4
+
+* build context: текущий репозиторий;
+* `prepare_mode: in-repo-context`;
+* поддерживает только `linux/amd64` и `linux/arm64/v8`;
+* `linux/386` отключён.
+
+### 3x-ui
+
+* upstream клонируется по latest release tag;
+* build context: `./WORKDIR`;
+* используется custom Dockerfile, entrypoint и init script;
+* default platforms: `linux/amd64`, `linux/386`;
+* build выполняется с `network: host`;
+* передаются build args:
+
+```text
+ALPINE_MIRROR
+GOPROXY
+GOSUMDB
+```
+
+### usque
+
+* upstream клонируется по latest release tag;
+* используется custom Dockerfile, entrypoint и init script;
+* default platforms: `linux/amd64`, `linux/386`.
+
+### dockcheck
+
+* upstream клонируется по latest release tag;
+* поддерживает `linux/amd64` и `linux/arm64/v8`;
+* `linux/386` принудительно отключён;
+* upstream tag передаётся в Docker build arg:
+
+```text
+DOCKCHECK_REF
+```
+
+### Warp Plus
+
+Warp Plus пока использует отдельный workflow.
+
+Особенности:
+
+* собирается только `linux/amd64`;
+* скачивает asset `warp-plus_linux-amd64.zip` из latest upstream release;
+* извлекает бинарники `warp-plus` и `warp-scan`;
+* собирает образ из `bin/warp`;
+* публикует `latest` и `<upstream_tag>`;
+* в GitHub Release прикладывается multi-arch/latest tarball.
+
+---
+
+## Типовой pipeline
+
+```text
+daily-trigger.yml
+  ↓
+project workflow
+  ↓
+_docker-project-build.yml
+  ↓
+prepare
+  ↓
+build & push Docker image
+  ↓
+export tar.gz archives
+  ↓
+create GitHub Release
+```
+
+---
+
+## Поведение при запуске
+
+### При push
+
+* запускаются только workflow, затронутые изменениями;
+* автоматически устанавливаются:
+
+```text
+build_force = true
+recreate_release = true
+```
+
+* сборка выполняется всегда, даже если GitHub Release уже существует (за счёт `build_force=true`);
+* при включённом `recreate_release` удаляется существующий GitHub Release вместе с соответствующим git tag, после чего создаётся новый;
+
+### При schedule / manual
+
+* поведение стандартное;
+* сборка пропускается, если release уже существует и не включён `build_force`;
+* можно управлять через параметры:
+
+```text
+build_force
+recreate_release
+build_skip
+release_skip
+```
+
+* если включён `release_skip`, этап создания GitHub Release пропускается;
+
+---
+
+## Логика выбора проектов при push
+
+Оркестратор анализирует список изменённых файлов и запускает только соответствующие workflow.
+
+Примеры:
+
+* `bin/caddy/**` → запускается только Caddy-L4
+* `bin/3x-ui/**` → только 3x-ui
+* `.github/workflows/_docker-project-build.yml` → запускаются все проекты, использующие общий pipeline
+* `.github/workflows/WarpPlus-Docker-Selfhosted.yml` → только Warp Plus
+
+Если ни один маршрут не совпал — workflow не запускается.
 
 ---
 
 ## Лицензия
 
-Лицензия этого репозитория не задана явно. Использование сторонних проектов регулируется их собственными лицензиями в соответствующих апстрим‑репозиториях.
+Использование upstream-проектов регулируется их собственными лицензиями.

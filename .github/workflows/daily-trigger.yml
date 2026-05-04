@@ -12,7 +12,7 @@ on:
 
 permissions:
   actions: write
-  contents: read
+  contents: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -36,26 +36,31 @@ jobs:
                 workflow: '3x-ui-Docker-selfhosted.yml',
                 prefixes: ['bin/3x-ui/', '.github/workflows/3x-ui-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
                 inputs: {},
+                recreateReleaseOnPush: true,
               },
               {
                 workflow: 'Caddy-L4-Docker-selfhosted.yml',
                 prefixes: ['bin/caddy/', '.github/workflows/Caddy-L4-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
                 inputs: {},
+                recreateReleaseOnPush: true,
               },
               {
                 workflow: 'WarpPlus-Docker-Selfhosted.yml',
                 prefixes: ['bin/warp/', '.github/workflows/WarpPlus-Docker-Selfhosted.yml'],
                 inputs: {},
+                recreateReleaseOnPush: false,
               },
               {
                 workflow: 'usque-Docker-selfhosted.yml',
                 prefixes: ['bin/usque/', '.github/workflows/usque-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
                 inputs: {},
+                recreateReleaseOnPush: true,
               },
               {
                 workflow: 'dockcheck-Docker-selfhosted.yml',
                 prefixes: ['bin/dockcheck/', '.github/workflows/dockcheck-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
                 inputs: {},
+                recreateReleaseOnPush: true,
               },
             ];
 
@@ -176,7 +181,18 @@ jobs:
 
             for (const project of selected) {
               core.info(`Dispatching ${project.workflow} on ${owner}/${repo}@${ref}`);
-              const beforeIds = await dispatchWorkflow(project.workflow, ref, project.inputs);
+
+              const dispatchInputs = {
+                ...(project.inputs || {}),
+                ...(context.eventName === 'push'
+                  ? {
+                      build_force: 'true',
+                      ...(project.recreateReleaseOnPush ? { recreate_release: 'true' } : {}),
+                    }
+                  : {}),
+              };
+
+              const beforeIds = await dispatchWorkflow(project.workflow, ref, dispatchInputs);
 
               let runId;
               try {

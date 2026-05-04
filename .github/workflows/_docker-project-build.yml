@@ -116,6 +116,11 @@ on:
         required: false
         type: boolean
         default: false
+      recreate_release:
+        description: Delete existing GitHub Release before creating a new one
+        required: false
+        type: boolean
+        default: false
       release_skip:
         description: Skip GitHub release creation
         required: false
@@ -450,6 +455,21 @@ jobs:
               echo "- \`${platform}\`"
             done
           } > release-body.md
+
+      - name: Delete existing GitHub Release
+        if: inputs.recreate_release == true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Deleting existing release ${RELEASE_TAG}"
+            gh release delete "${RELEASE_TAG}" --yes --cleanup-tag
+          else
+            echo "Release ${RELEASE_TAG} does not exist"
+          fi
 
       - name: Create GitHub Release
         env:
