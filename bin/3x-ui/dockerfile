@@ -1,9 +1,25 @@
 # ========================================================
-# Stage: Builder
-# ========================================================
 ARG ALPINE_MIRROR=http://mirror.yandex.ru/mirrors/alpine
 ARG GOPROXY=https://goproxy.cn,https://goproxy.io,direct
 ARG GOSUMDB=sum.golang.google.cn
+ARG BUILDPLATFORM=linux/amd64
+
+# ========================================================
+# Stage: Frontend (Vite)
+# ========================================================
+FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend
+WORKDIR /src/frontend
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+COPY web/translation /src/web/translation
+RUN npm run build
+
+# ========================================================
+# Stage: Builder
+# ========================================================
 FROM golang:1.26-alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
@@ -21,6 +37,7 @@ RUN alpine_version="$(cut -d. -f1,2 /etc/alpine-release)" \
   bash
 
 COPY . .
+COPY --from=frontend /src/web/dist ./web/dist
 
 ENV CGO_ENABLED=1
 ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
@@ -60,6 +77,7 @@ RUN alpine_version="$(cut -d. -f1,2 /etc/alpine-release)" \
 COPY --from=builder /app/build /app/
 COPY --from=builder /app/DockerEntrypoint.sh /app/
 COPY --from=builder /app/x-ui.sh /usr/bin/x-ui
+COPY --from=builder /app/web/translation /app/web/translation
 
 # Configure fail2ban
 RUN rm -f /etc/fail2ban/jail.d/alpine-ssh.conf \
