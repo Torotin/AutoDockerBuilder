@@ -94,7 +94,7 @@ jobs:
       repo_ext_name: Diniboy1123/usque
       docker_repo: torotin/usque
       prepare_mode: clone-release
-      workdir: ./WORKDIR
+      workdir: ./WORKDIR/usque
       custom_dockerfile: ./bin/usque/Dockerfile
       custom_entrypoint: ./bin/usque/DockerEntrypoint.sh
       custom_init: ./bin/usque/DockerInit.sh

@@ -146,7 +146,7 @@ cache-to:
 repo_ext_url: https://github.com/<owner>/<repo>.git
 repo_ext_name: <owner>/<repo>
 prepare_mode: clone-release
-workdir: ./WORKDIR
+workdir: ./WORKDIR/<project>
 ```
 
 Применяется для:
@@ -154,6 +154,10 @@ workdir: ./WORKDIR
 * `3x-ui`
 * `usque`
 * `dockcheck`
+
+Каждый `clone-release` проект должен использовать отдельный подкаталог
+`./WORKDIR/<project>`, чтобы Docker Build summary и временный build context не
+смешивали разные upstream-проекты.
 
 ### `in-repo-context`
 
@@ -408,7 +412,7 @@ jobs:
       repo_ext_name: example/example
       docker_repo: torotin/example
       prepare_mode: clone-release
-      workdir: ./WORKDIR
+      workdir: ./WORKDIR/example
       custom_dockerfile: ./bin/example/Dockerfile
       custom_entrypoint: ./bin/example/entrypoint.sh
       default_platforms: linux/amd64
@@ -439,7 +443,7 @@ jobs:
 ### 3x-ui
 
 * upstream клонируется по latest release tag;
-* build context: `./WORKDIR`;
+* build context: `./WORKDIR/3x-ui`;
 * используется custom Dockerfile, entrypoint и init script;
 * default platforms: `linux/amd64`, `linux/386`;
 * build выполняется с `network: host`;
@@ -454,12 +458,14 @@ GOSUMDB
 ### usque
 
 * upstream клонируется по latest release tag;
+* build context: `./WORKDIR/usque`;
 * используется custom Dockerfile, entrypoint и init script;
 * default platforms: `linux/amd64`, `linux/386`.
 
 ### dockcheck
 
 * upstream клонируется по latest release tag;
+* build context: `./WORKDIR/dockcheck`;
 * поддерживает `linux/amd64` и `linux/arm64/v8`;
 * `linux/386` принудительно отключён;
 * upstream tag передаётся в Docker build arg:

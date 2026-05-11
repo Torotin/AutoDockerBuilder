@@ -85,7 +85,7 @@ jobs:
       repo_ext_name: mag37/dockcheck
       docker_repo: torotin/dockcheck
       prepare_mode: clone-release
-      workdir: ./WORKDIR
+      workdir: ./WORKDIR/dockcheck
       custom_dockerfile: ./bin/dockcheck/Dockerfile
       custom_entrypoint: ./bin/dockcheck/entrypoint.sh
       entrypoint_target: entrypoint.sh

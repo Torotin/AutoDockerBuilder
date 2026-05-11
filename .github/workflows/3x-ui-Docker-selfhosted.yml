@@ -94,7 +94,7 @@ jobs:
       repo_ext_name: MHSanaei/3x-ui
       docker_repo: torotin/3x-ui
       prepare_mode: clone-release
-      workdir: ./WORKDIR
+      workdir: ./WORKDIR/3x-ui
       custom_dockerfile: ./bin/3x-ui/dockerfile
       custom_entrypoint: ./bin/3x-ui/DockerEntrypoint.sh
       custom_init: ./bin/3x-ui/DockerInit.sh
