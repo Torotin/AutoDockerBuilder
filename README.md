@@ -12,12 +12,12 @@
 
 | Проект | Upstream | Docker Hub | Workflow |
 | --- | --- | --- | --- |
-| Caddy-L4 | `caddyserver/caddy` | `torotin/caddy-l4` | `Caddy-L4-Docker-selfhosted.yml` |
-| 3x-ui | `MHSanaei/3x-ui` | `torotin/3x-ui` | `3x-ui-Docker-selfhosted.yml` |
-| usque | `Diniboy1123/usque` | `torotin/usque` | `usque-Docker-selfhosted.yml` |
-| dockcheck | `mag37/dockcheck` | `torotin/dockcheck` | `dockcheck-Docker-selfhosted.yml` |
-| telemt-stack | `telemt/telemt` + `amirotin/telemt_panel` | `torotin/telemt-stack` | `Telemt-Stack-Docker-selfhosted.yml` |
-| Warp Plus | `bepass-org/warp-plus` | `torotin/warp-plus` | `WarpPlus-Docker-Selfhosted.yml` |
+| Caddy-L4 | [`caddyserver/caddy`](https://github.com/caddyserver/caddy) | `torotin/caddy-l4` | `Caddy-L4-Docker-selfhosted.yml` |
+| 3x-ui | [`MHSanaei/3x-ui`](https://github.com/MHSanaei/3x-ui) | `torotin/3x-ui` | `3x-ui-Docker-selfhosted.yml` |
+| usque | [`Diniboy1123/usque`](https://github.com/Diniboy1123/usque) | `torotin/usque` | `usque-Docker-selfhosted.yml` |
+| dockcheck | [`mag37/dockcheck`](https://github.com/mag37/dockcheck) | `torotin/dockcheck` | `dockcheck-Docker-selfhosted.yml` |
+| telemt-stack | [`telemt/telemt`](https://github.com/telemt/telemt) + [`amirotin/telemt_panel`](https://github.com/amirotin/telemt_panel) | `torotin/telemt-stack` | `Telemt-Stack-Docker-selfhosted.yml` |
+| Warp Plus | [`bepass-org/warp-plus`](https://github.com/bepass-org/warp-plus) | `torotin/warp-plus` | `WarpPlus-Docker-Selfhosted.yml` |
 
 > Важно: Warp Plus пока остаётся отдельным workflow и не переведён на общий `_docker-project-build.yml`.
 > Warp Plus не использует общий `_docker-project-build.yml`,
@@ -487,7 +487,7 @@ DOCKCHECK_REF
 * build context: текущий репозиторий;
 * `prepare_mode: in-repo-context`;
 * публикует единый образ `torotin/telemt-stack`, объединяющий `telemt` и `telemt-panel`;
-* скачивает бинарники из GitHub Releases `telemt/telemt` и `amirotin/telemt_panel`;
+* скачивает бинарники из GitHub Releases [`telemt/telemt`](https://github.com/telemt/telemt) и [`amirotin/telemt_panel`](https://github.com/amirotin/telemt_panel);
 * default platform: `linux/amd64`;
 * supported platforms: `linux/amd64`, `linux/arm64/v8`;
 * `linux/386` отключён.
