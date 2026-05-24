@@ -62,6 +62,12 @@ jobs:
                 inputs: {},
                 recreateReleaseOnPush: true,
               },
+              {
+                workflow: 'Telemt-Stack-Docker-selfhosted.yml',
+                prefixes: ['bin/telemt-stack/', '.github/workflows/Telemt-Stack-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
+                inputs: {},
+                recreateReleaseOnPush: true,
+              },
             ];
 
             const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));

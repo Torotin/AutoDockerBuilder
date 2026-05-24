@@ -1,0 +1,77 @@
+FROM debian:12-slim
+
+ARG TARGETARCH
+ARG TELEMT_REPOSITORY=telemt/telemt
+ARG TELEMT_VERSION=latest
+ARG TELEMT_PANEL_REPOSITORY=amirotin/telemt_panel
+ARG TELEMT_PANEL_VERSION=latest
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        tar; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) release_arch="x86_64" ;; \
+        arm64) release_arch="aarch64" ;; \
+        *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    download_release_asset() { \
+        repository="$1"; \
+        version="$2"; \
+        asset="$3"; \
+        output="$4"; \
+        if [ "${version}" = "latest" ]; then \
+            url="https://github.com/${repository}/releases/latest/download/${asset}"; \
+        else \
+            url="https://github.com/${repository}/releases/download/${version}/${asset}"; \
+        fi; \
+        curl -fL --retry 5 --retry-delay 2 "${url}" -o "${output}"; \
+    }; \
+    install_binary_from_archive() { \
+        archive="$1"; \
+        binary="$2"; \
+        destination="$3"; \
+        tmpdir="$(mktemp -d)"; \
+        tar -xzf "${archive}" -C "${tmpdir}"; \
+        found="$(find "${tmpdir}" -type f -name "${binary}" | head -n 1)"; \
+        if [ -z "${found}" ]; then \
+            found="$(find "${tmpdir}" -type f -name "${binary}-*" | head -n 1)"; \
+        fi; \
+        if [ -z "${found}" ]; then \
+            echo "Binary ${binary} not found in ${archive}" >&2; \
+            find "${tmpdir}" -maxdepth 3 -type f >&2; \
+            exit 1; \
+        fi; \
+        install -m 0755 "${found}" "${destination}"; \
+        rm -rf "${tmpdir}"; \
+    }; \
+    telemt_asset="telemt-${release_arch}-linux-gnu.tar.gz"; \
+    telemt_panel_asset="telemt-panel-${release_arch}-linux-gnu.tar.gz"; \
+    download_release_asset "${TELEMT_REPOSITORY}" "${TELEMT_VERSION}" "${telemt_asset}" /tmp/telemt.tar.gz; \
+    download_release_asset "${TELEMT_PANEL_REPOSITORY}" "${TELEMT_PANEL_VERSION}" "${telemt_panel_asset}" /tmp/telemt-panel.tar.gz; \
+    install_binary_from_archive /tmp/telemt.tar.gz telemt /usr/local/bin/telemt; \
+    install_binary_from_archive /tmp/telemt-panel.tar.gz telemt-panel /usr/local/bin/telemt-panel; \
+    rm -f /tmp/telemt.tar.gz /tmp/telemt-panel.tar.gz; \
+    test -x /usr/local/bin/telemt; \
+    test -x /usr/local/bin/telemt-panel
+
+COPY DockerEntrypoint.sh /usr/local/bin/telemt-stack-entrypoint.sh
+
+RUN set -eux; \
+    chmod 0755 /usr/local/bin/telemt-stack-entrypoint.sh; \
+    test -x /usr/local/bin/telemt; \
+    test -x /usr/local/bin/telemt-panel; \
+    test -x /usr/local/bin/telemt-stack-entrypoint.sh
+
+EXPOSE 9443
+EXPOSE 9091
+EXPOSE 9090
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/telemt-stack-entrypoint.sh"]

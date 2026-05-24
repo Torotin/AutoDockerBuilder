@@ -1,0 +1,113 @@
+name: Telemt-Stack-Docker-SelfHosted
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_amd64:
+        description: Build linux/amd64
+        required: false
+        default: true
+        type: boolean
+      build_arm64:
+        description: Build linux/arm64/v8
+        required: false
+        default: false
+        type: boolean
+      build_386:
+        description: Ignored for Telemt Stack because linux/386 is unsupported
+        required: false
+        default: false
+        type: boolean
+      build_skip:
+        description: Skip build
+        required: false
+        default: false
+        type: boolean
+      build_force:
+        description: Force build even if release exists
+        required: false
+        default: false
+        type: boolean
+      recreate_release:
+        description: Delete existing GitHub Release before creating a new one
+        required: false
+        default: false
+        type: boolean
+      release_skip:
+        description: Skip GitHub release creation
+        required: false
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      build_amd64:
+        required: false
+        default: true
+        type: boolean
+      build_arm64:
+        required: false
+        default: false
+        type: boolean
+      build_386:
+        required: false
+        default: false
+        type: boolean
+      build_skip:
+        required: false
+        default: false
+        type: boolean
+      build_force:
+        required: false
+        default: false
+        type: boolean
+      recreate_release:
+        required: false
+        default: false
+        type: boolean
+      release_skip:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  docker:
+    uses: ./.github/workflows/_docker-project-build.yml
+    with:
+      project_name: telemt-stack
+      release_tag_prefix: telemt-stack
+      release_name_prefix: Telemt Stack
+      artifact_prefix: telemt-stack
+      repo_ext_name: telemt/telemt
+      docker_repo: torotin/telemt-stack
+      prepare_mode: in-repo-context
+      workdir: .
+      custom_dockerfile: ./bin/telemt-stack/dockerfile
+      custom_entrypoint: ./bin/telemt-stack/DockerEntrypoint.sh
+      default_platforms: linux/amd64
+      supported_platforms: linux/amd64,linux/arm64/v8
+      build_args: |
+        TELEMT_REPOSITORY=telemt/telemt
+        TELEMT_VERSION=latest
+        TELEMT_PANEL_REPOSITORY=amirotin/telemt_panel
+        TELEMT_PANEL_VERSION=latest
+      build_amd64: ${{ inputs.build_amd64 }}
+      build_arm64: ${{ inputs.build_arm64 }}
+      build_386: ${{ inputs.build_386 }}
+      build_skip: ${{ inputs.build_skip }}
+      build_force: ${{ inputs.build_force }}
+      recreate_release: ${{ inputs.recreate_release }}
+      release_skip: ${{ inputs.release_skip }}
+    secrets: inherit

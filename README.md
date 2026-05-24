@@ -16,6 +16,7 @@
 | 3x-ui | `MHSanaei/3x-ui` | `torotin/3x-ui` | `3x-ui-Docker-selfhosted.yml` |
 | usque | `Diniboy1123/usque` | `torotin/usque` | `usque-Docker-selfhosted.yml` |
 | dockcheck | `mag37/dockcheck` | `torotin/dockcheck` | `dockcheck-Docker-selfhosted.yml` |
+| telemt-stack | `telemt/telemt` + `amirotin/telemt_panel` | `torotin/telemt-stack` | `Telemt-Stack-Docker-selfhosted.yml` |
 | Warp Plus | `bepass-org/warp-plus` | `torotin/warp-plus` | `WarpPlus-Docker-Selfhosted.yml` |
 
 > Важно: Warp Plus пока остаётся отдельным workflow и не переведён на общий `_docker-project-build.yml`.
@@ -173,6 +174,7 @@ workdir: .
 Применяется для:
 
 * `Caddy-L4`
+* `telemt-stack`
 
 ---
 
@@ -208,6 +210,7 @@ workdir: .
 | 3x-ui     | `linux/amd64`, `linux/386` | `linux/amd64`, `linux/arm64/v8`, `linux/386` |
 | usque     | `linux/amd64`, `linux/386` | `linux/amd64`, `linux/arm64/v8`, `linux/386` |
 | dockcheck | `linux/amd64`              | `linux/amd64`, `linux/arm64/v8`              |
+| telemt-stack | `linux/amd64`           | `linux/amd64`, `linux/arm64/v8`              |
 | Warp Plus | `linux/amd64`              | `linux/amd64`                                |
 
 ---
@@ -358,6 +361,7 @@ self-hosted-runner:
     3x-ui-Docker-selfhosted.yml      # wrapper для 3x-ui
     usque-Docker-selfhosted.yml      # wrapper для usque
     dockcheck-Docker-selfhosted.yml  # wrapper для dockcheck
+    Telemt-Stack-Docker-selfhosted.yml # wrapper для telemt-stack
     WarpPlus-Docker-Selfhosted.yml   # отдельный workflow для Warp Plus
 
 bin/
@@ -380,6 +384,10 @@ bin/
     entrypoint.sh
     docker-compose.dockcheck.yml
     .env.template
+
+  telemt-stack/
+    dockerfile
+    DockerEntrypoint.sh
 
   warp/
     Dockerfile
@@ -473,6 +481,16 @@ GOSUMDB
 ```text
 DOCKCHECK_REF
 ```
+
+### telemt-stack
+
+* build context: текущий репозиторий;
+* `prepare_mode: in-repo-context`;
+* публикует единый образ `torotin/telemt-stack`, объединяющий `telemt` и `telemt-panel`;
+* скачивает бинарники из GitHub Releases `telemt/telemt` и `amirotin/telemt_panel`;
+* default platform: `linux/amd64`;
+* supported platforms: `linux/amd64`, `linux/arm64/v8`;
+* `linux/386` отключён.
 
 ### Warp Plus
 
@@ -616,15 +634,17 @@ release_skip
 | `.github/workflows/usque-Docker-selfhosted.yml` | `usque-Docker-selfhosted.yml` |
 | `bin/dockcheck/**` | `dockcheck-Docker-selfhosted.yml` |
 | `.github/workflows/dockcheck-Docker-selfhosted.yml` | `dockcheck-Docker-selfhosted.yml` |
+| `bin/telemt-stack/**` | `Telemt-Stack-Docker-selfhosted.yml` |
+| `.github/workflows/Telemt-Stack-Docker-selfhosted.yml` | `Telemt-Stack-Docker-selfhosted.yml` |
 | `bin/warp/**` | `WarpPlus-Docker-Selfhosted.yml` |
 | `.github/workflows/WarpPlus-Docker-Selfhosted.yml` | `WarpPlus-Docker-Selfhosted.yml` |
-| `.github/workflows/_docker-project-build.yml` | все проекты на общем reusable workflow: `3x-ui`, `Caddy-L4`, `usque`, `dockcheck` |
+| `.github/workflows/_docker-project-build.yml` | все проекты на общем reusable workflow: `3x-ui`, `Caddy-L4`, `usque`, `dockcheck`, `telemt-stack` |
 
 Примеры:
 
 * изменение только `bin/caddy/dockerfile` запускает только Caddy-L4;
 * изменение только `bin/3x-ui/DockerInit.sh` запускает только 3x-ui;
-* изменение `_docker-project-build.yml` запускает `3x-ui`, `Caddy-L4`, `usque` и `dockcheck`;
+* изменение `_docker-project-build.yml` запускает `3x-ui`, `Caddy-L4`, `usque`, `dockcheck` и `telemt-stack`;
 * изменение `daily-trigger.yml` само по себе не запускает проектные сборки, потому что этот файл не входит в project prefixes;
 * изменение `README.md` не запускает `daily-trigger.yml`, потому что README не входит в push `paths`.
 
