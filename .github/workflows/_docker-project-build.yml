@@ -510,8 +510,15 @@ jobs:
         run: |
           set -euo pipefail
           current_run_id="${{ github.run_id }}"
-          gh run list --workflow "${{ github.workflow }}" --limit 100 --json databaseId \
-            --jq '.[].databaseId' \
-            | grep -v "^${current_run_id}$" \
-            | tail -n +11 \
-            | xargs -r -n1 gh run delete
+          mapfile -t old_run_ids < <(
+            gh run list --workflow "${{ github.workflow }}" --limit 100 --json databaseId \
+              --jq '.[].databaseId' \
+              | awk -v current_run_id="${current_run_id}" '$0 != current_run_id' \
+              | tail -n +11
+          )
+
+          if [ "${#old_run_ids[@]}" -gt 0 ]; then
+            printf '%s\n' "${old_run_ids[@]}" | xargs -r -n1 gh run delete
+          else
+            echo "No old workflow runs to delete"
+          fi
