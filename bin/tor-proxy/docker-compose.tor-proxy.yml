@@ -4,15 +4,24 @@ services:
     container_name: tor-proxy
     hostname: tor-proxy
     restart: unless-stopped
+    cpus: ${TOR_PROXY_CPUS:-0.75}
+    mem_limit: ${TOR_PROXY_MEMORY_LIMIT:-512m}
     environment:
       TZ: ${TZ:-UTC}
       TOR_BRIDGES_ENABLED: ${TOR_BRIDGES_ENABLED:-true}
       TOR_BRIDGE_TRANSPORT: ${TOR_BRIDGE_TRANSPORT:-auto}
-      TOR_BRIDGES_MAX_PER_TRANSPORT: ${TOR_BRIDGES_MAX_PER_TRANSPORT:-32}
+      TOR_BRIDGES_MAX_PER_TRANSPORT: ${TOR_BRIDGES_MAX_PER_TRANSPORT:-2}
+      TOR_MAX_CLIENT_CIRCUITS_PENDING: ${TOR_MAX_CLIENT_CIRCUITS_PENDING:-4}
+      TOR_IPV6_AVAILABLE: ${TOR_IPV6_AVAILABLE:-auto}
       TOR_BRIDGES_OBFS4_URL: ${TOR_BRIDGES_OBFS4_URL:-https://raw.githubusercontent.com/scriptzteam/Tor-Bridges-Collector/refs/heads/main/bridges-obfs4}
       TOR_BRIDGES_OBFS4_IPV6_URL: ${TOR_BRIDGES_OBFS4_IPV6_URL:-https://raw.githubusercontent.com/scriptzteam/Tor-Bridges-Collector/refs/heads/main/bridges-obfs4-ipv6}
       TOR_BRIDGES_WEBTUNNEL_URL: ${TOR_BRIDGES_WEBTUNNEL_URL:-https://raw.githubusercontent.com/scriptzteam/Tor-Bridges-Collector/refs/heads/main/bridges-webtunnel}
       TOR_BRIDGES_SNOWFLAKE_URL: ${TOR_BRIDGES_SNOWFLAKE_URL:-https://gitlab.torproject.org/tpo/applications/tor-browser-build/-/raw/main/projects/tor-expert-bundle/pt_config.json}
+      TOR_BOOTSTRAP_DNS_ENABLED: ${TOR_BOOTSTRAP_DNS_ENABLED:-true}
+      TOR_BOOTSTRAP_DNS_UPSTREAMS: ${TOR_BOOTSTRAP_DNS_UPSTREAMS:-https://dns.adguard-dns.com/dns-query tls://dns.adguard-dns.com quic://dns.adguard-dns.com}
+      TOR_BOOTSTRAP_DNS_BOOTSTRAPS: ${TOR_BOOTSTRAP_DNS_BOOTSTRAPS:-94.140.14.14:53 94.140.15.15:53}
+      TOR_BOOTSTRAP_DNS_PLAIN_FALLBACK: ${TOR_BOOTSTRAP_DNS_PLAIN_FALLBACK:-true}
+      TOR_BOOTSTRAP_DNS_FALLBACKS: ${TOR_BOOTSTRAP_DNS_FALLBACKS:-}
       TOR_UPDATE_ON_START: ${TOR_UPDATE_ON_START:-true}
       TOR_PROXY_LOGIN: ${TOR_PROXY_LOGIN:-}
       TOR_PROXY_PASSWORD: ${TOR_PROXY_PASSWORD:-}

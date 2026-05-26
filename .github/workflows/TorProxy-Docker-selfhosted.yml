@@ -68,6 +68,7 @@ jobs:
       tor_version: ${{ steps.versions.outputs.tor_version }}
       lyrebird_version: ${{ steps.versions.outputs.lyrebird_version }}
       gost_version: ${{ steps.versions.outputs.gost_version }}
+      dnsproxy_version: ${{ steps.versions.outputs.dnsproxy_version }}
       image_tag: ${{ steps.versions.outputs.image_tag }}
       release_tag: ${{ steps.versions.outputs.release_tag }}
       skip: ${{ steps.release-check.outputs.skip }}
@@ -97,15 +98,21 @@ jobs:
             curl -fsSL https://api.github.com/repos/go-gost/gost/releases/latest |
               jq -r '.tag_name | sub("^v"; "")'
           )"
-          test -n "${tor_version}" && test -n "${lyrebird_version}" && test -n "${gost_version}"
+          dnsproxy_version="$(
+            curl -fsSL https://api.github.com/repos/AdguardTeam/dnsproxy/releases/latest |
+              jq -r '.tag_name | sub("^v"; "")'
+          )"
+          test -n "${tor_version}" && test -n "${lyrebird_version}" &&
+            test -n "${gost_version}" && test -n "${dnsproxy_version}"
 
           safe_tor="$(tr '~+' '--' <<< "${tor_version}")"
-          image_tag="tor-${safe_tor}_lyrebird-${lyrebird_version}_gost-${gost_version}"
+          image_tag="tor-${safe_tor}_lyrebird-${lyrebird_version}_gost-${gost_version}_dnsproxy-${dnsproxy_version}"
           release_tag="tor-proxy_${image_tag}"
           {
             echo "tor_version=${tor_version}"
             echo "lyrebird_version=${lyrebird_version}"
             echo "gost_version=${gost_version}"
+            echo "dnsproxy_version=${dnsproxy_version}"
             echo "image_tag=${image_tag}"
             echo "release_tag=${release_tag}"
           } >> "${GITHUB_OUTPUT}"
@@ -173,6 +180,7 @@ jobs:
             TOR_VERSION=${{ needs.prepare.outputs.tor_version }}
             LYREBIRD_VERSION=${{ needs.prepare.outputs.lyrebird_version }}
             GOST_VERSION=${{ needs.prepare.outputs.gost_version }}
+            DNSPROXY_VERSION=${{ needs.prepare.outputs.dnsproxy_version }}
           cache-from: |
             type=gha,scope=tor-proxy
             type=registry,ref=${{ env.DOCKER_REPO }}:buildcache
@@ -214,6 +222,7 @@ jobs:
           TOR_VERSION: ${{ needs.prepare.outputs.tor_version }}
           LYREBIRD_VERSION: ${{ needs.prepare.outputs.lyrebird_version }}
           GOST_VERSION: ${{ needs.prepare.outputs.gost_version }}
+          DNSPROXY_VERSION: ${{ needs.prepare.outputs.dnsproxy_version }}
           IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
         shell: bash
         run: |
@@ -225,6 +234,7 @@ jobs:
             echo "- Tor: \`${TOR_VERSION}\` from \`deb.torproject.org\`"
             echo "- Lyrebird: \`${LYREBIRD_VERSION}\`"
             echo "- GOST: \`${GOST_VERSION}\`"
+            echo "- dnsproxy: \`${DNSPROXY_VERSION}\`"
             echo
             echo "### Image"
             echo "- \`${DOCKER_REPO}:latest\`"

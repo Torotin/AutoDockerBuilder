@@ -28,12 +28,22 @@ assert_line_count() {
     [ "$actual" = "$expected" ] || fail "expected ${expected} lines in ${file}, got ${actual}"
 }
 
+assert_transport_line_count() {
+    file="$1"
+    transport="$2"
+    expected="$3"
+    actual="$(awk -v transport="$transport" '$1 == "Bridge" && $2 == transport { count++ } END { print count + 0 }' "$file")"
+    [ "$actual" = "$expected" ] ||
+        fail "expected ${expected} ${transport} lines in ${file}, got ${actual}"
+}
+
 make_fixtures() {
     fixture_dir="$1"
 
     cat > "${fixture_dir}/obfs4.txt" <<'EOF'
 obfs4 198.51.100.10:443 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA cert=abc iat-mode=0
 Bridge obfs4 198.51.100.11:443 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB cert=def iat-mode=0
+obfs4 [2001:db8::11]:443 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC cert=inline-ipv6 iat-mode=0
 webtunnel 198.51.100.30:443 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC url=https://wrong.invalid
 EOF
 
@@ -51,7 +61,7 @@ EOF
 EOF
 
     cat > "${fixture_dir}/defaults.json" <<'EOF'
-{"bridges":{"obfs4":["obfs4 203.0.113.10:443 1111111111111111111111111111111111111111 cert=builtin iat-mode=0"],"snowflake":["snowflake 192.0.2.4:80 2222222222222222222222222222222222222222 url=https://builtin.example fronts=front.example"]}}
+{"bridges":{"obfs4":["obfs4 203.0.113.10:443 1111111111111111111111111111111111111111 cert=builtin iat-mode=0","obfs4 [2001:db8::20]:443 2222222222222222222222222222222222222222 cert=builtin-ipv6 iat-mode=0"],"snowflake":["snowflake 192.0.2.4:80 3333333333333333333333333333333333333333 url=https://builtin.example fronts=front.example"]}}
 EOF
 }
 
@@ -93,6 +103,7 @@ test_fetch_filter_deduplicate_and_exclude_ipv6() {
     assert_contains "$tmp/out.conf" "Bridge obfs4 198.51.100.10:443 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA cert=abc iat-mode=0"
     assert_contains "$tmp/out.conf" "Bridge snowflake 192.0.2.3:80 FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF url=https://snowflake.example fronts=front.example"
     assert_not_contains "$tmp/out.conf" "Bridge obfs4 [2001:db8::10]:443 DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD cert=ipv6 iat-mode=0"
+    assert_not_contains "$tmp/out.conf" "Bridge obfs4 [2001:db8::11]:443 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC cert=inline-ipv6 iat-mode=0"
     assert_line_count "$tmp/out.conf" 4
 }
 
@@ -109,11 +120,13 @@ test_cache_then_bundled_fallback() {
         "file://${tmp}/obfs4.txt" "file://${tmp}/missing-ipv6" \
         "file://${tmp}/missing-web" "file://${tmp}/missing-snow"
     assert_contains "$tmp/cached.conf" "Bridge obfs4 198.51.100.10:443 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA cert=abc iat-mode=0"
+    assert_not_contains "$tmp/cached.conf" "Bridge obfs4 [2001:db8::11]:443 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC cert=inline-ipv6 iat-mode=0"
 
     run_sync "$tmp/new-cache" "$tmp/builtin.conf" "$tmp/defaults.json" obfs4 false 32 \
         "file://${tmp}/missing-obfs4" "file://${tmp}/missing-ipv6" \
         "file://${tmp}/missing-web" "file://${tmp}/missing-snow"
     assert_contains "$tmp/builtin.conf" "Bridge obfs4 203.0.113.10:443 1111111111111111111111111111111111111111 cert=builtin iat-mode=0"
+    assert_not_contains "$tmp/builtin.conf" "Bridge obfs4 [2001:db8::20]:443 2222222222222222222222222222222222222222 cert=builtin-ipv6 iat-mode=0"
 }
 
 test_explicit_webtunnel_requires_feed_or_cache() {
@@ -139,8 +152,52 @@ test_limit_selected_bridge_count() {
     assert_line_count "$tmp/out.conf" 1
 }
 
+test_default_limits_each_transport_to_two_bridges() {
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' RETURN
+    make_fixtures "$tmp"
+
+    cat >> "${tmp}/obfs4.txt" <<'EOF'
+obfs4 198.51.100.12:443 3333333333333333333333333333333333333333 cert=third iat-mode=0
+EOF
+    cat >> "${tmp}/webtunnel.txt" <<'EOF'
+webtunnel 192.0.2.2:443 4444444444444444444444444444444444444444 url=https://bridge.example/b
+webtunnel 192.0.2.3:443 5555555555555555555555555555555555555555 url=https://bridge.example/c
+EOF
+
+    TOR_PROXY_CACHE_DIR="$tmp/cache" \
+    TOR_BRIDGES_CONFIG="$tmp/out.conf" \
+    TOR_BRIDGE_TRANSPORT=auto \
+    TOR_IPV6_AVAILABLE=false \
+    TOR_BRIDGES_BUILTIN_DEFAULTS="$tmp/defaults.json" \
+    TOR_BRIDGES_OBFS4_URL="file://${tmp}/obfs4.txt" \
+    TOR_BRIDGES_OBFS4_IPV6_URL="file://${tmp}/obfs4-ipv6.txt" \
+    TOR_BRIDGES_WEBTUNNEL_URL="file://${tmp}/webtunnel.txt" \
+    TOR_BRIDGES_SNOWFLAKE_URL="file://${tmp}/snowflake.json" \
+    bash "$SCRIPT"
+
+    assert_transport_line_count "$tmp/out.conf" obfs4 2
+    assert_transport_line_count "$tmp/out.conf" webtunnel 2
+    assert_transport_line_count "$tmp/out.conf" snowflake 1
+}
+
+test_native_ipv6_allows_ipv6_bridge_endpoints() {
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' RETURN
+    make_fixtures "$tmp"
+
+    run_sync "$tmp/cache" "$tmp/out.conf" "$tmp/defaults.json" obfs4 true 32 \
+        "file://${tmp}/obfs4.txt" "file://${tmp}/obfs4-ipv6.txt" \
+        "file://${tmp}/missing-web" "file://${tmp}/missing-snow"
+
+    assert_contains "$tmp/out.conf" "Bridge obfs4 [2001:db8::11]:443 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC cert=inline-ipv6 iat-mode=0"
+    assert_contains "$tmp/out.conf" "Bridge obfs4 [2001:db8::10]:443 DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD cert=ipv6 iat-mode=0"
+}
+
 test_fetch_filter_deduplicate_and_exclude_ipv6
 test_cache_then_bundled_fallback
 test_explicit_webtunnel_requires_feed_or_cache
 test_limit_selected_bridge_count
+test_default_limits_each_transport_to_two_bridges
+test_native_ipv6_allows_ipv6_bridge_endpoints
 printf 'PASS: bridge-sync behavior\n'

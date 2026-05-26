@@ -4,7 +4,7 @@ set -Eeuo pipefail
 : "${TOR_PROXY_CACHE_DIR:=/var/lib/tor-proxy/bridges}"
 : "${TOR_BRIDGES_CONFIG:=/etc/tor/bridges.generated.conf}"
 : "${TOR_BRIDGE_TRANSPORT:=auto}"
-: "${TOR_BRIDGES_MAX_PER_TRANSPORT:=32}"
+: "${TOR_BRIDGES_MAX_PER_TRANSPORT:=2}"
 : "${TOR_IPV6_AVAILABLE:=auto}"
 : "${TOR_BRIDGES_BUILTIN_DEFAULTS:=/usr/local/share/tor-proxy/pt_config.json}"
 : "${TOR_BRIDGES_OBFS4_URL:=https://raw.githubusercontent.com/scriptzteam/Tor-Bridges-Collector/refs/heads/main/bridges-obfs4}"
@@ -52,6 +52,23 @@ normalize_lines() {
     ' "${input}" | awk '!seen[$0]++' > "${output}"
 }
 
+filter_network_usable_lines() {
+    local input="$1"
+    local output="$2"
+
+    if [ "${allow_ipv6_bridges}" = "true" ]; then
+        cp "${input}" "${output}"
+        return 0
+    fi
+
+    awk '
+        {
+            endpoint = ($1 == "Bridge" ? $3 : $2)
+            if (endpoint !~ /^\[/) print
+        }
+    ' "${input}" > "${output}"
+}
+
 extract_snowflake_input() {
     local input="$1"
     local output="$2"
@@ -83,19 +100,26 @@ source_dataset() {
         normalize_lines "${transport}" "${extracted}" "${valid}"
         if [ -s "${valid}" ]; then
             cp "${valid}" "${cache}"
-            cp "${valid}" "${output}"
             log "${name}: refreshed $(wc -l < "${valid}" | tr -d ' ') validated ${transport} bridges"
-            return 0
+            filter_network_usable_lines "${valid}" "${output}"
+            if [ -s "${output}" ]; then
+                return 0
+            fi
+            log "WARN: ${name} source has no network-usable ${transport} bridges"
+        else
+            log "WARN: ${name} source returned no valid ${transport} bridges"
         fi
-        log "WARN: ${name} source returned no valid ${transport} bridges"
     else
         log "WARN: failed to download ${name} source"
     fi
 
     if [ -s "${cache}" ]; then
-        cp "${cache}" "${output}"
-        log "${name}: using cached validated ${transport} bridges"
-        return 0
+        filter_network_usable_lines "${cache}" "${output}"
+        if [ -s "${output}" ]; then
+            log "${name}: using cached validated ${transport} bridges"
+            return 0
+        fi
+        log "WARN: ${name} cache has no network-usable ${transport} bridges"
     fi
     return 1
 }
@@ -108,7 +132,8 @@ builtin_dataset() {
     [ -s "${TOR_BRIDGES_BUILTIN_DEFAULTS}" ] || return 1
     jq -r --arg transport "${transport}" '.bridges[$transport][]?' \
         "${TOR_BRIDGES_BUILTIN_DEFAULTS}" > "${raw}"
-    normalize_lines "${transport}" "${raw}" "${output}"
+    normalize_lines "${transport}" "${raw}" "${work_dir}/builtin-${transport}.valid"
+    filter_network_usable_lines "${work_dir}/builtin-${transport}.valid" "${output}"
     [ -s "${output}" ] || return 1
     log "${transport}: using bundled official Tor Browser defaults"
 }
@@ -134,6 +159,14 @@ append_sample() {
     log "${transport}: selected at most ${TOR_BRIDGES_MAX_PER_TRANSPORT} bridges for this start"
 }
 
+allow_ipv6_bridges=false
+if ipv6_is_available; then
+    allow_ipv6_bridges=true
+    log "IPv6 bridge endpoints enabled because outbound IPv6 is available"
+else
+    log "IPv6 bridge endpoints filtered because outbound IPv6 is unavailable"
+fi
+
 obfs4_pool="${work_dir}/obfs4.pool"
 webtunnel_pool="${work_dir}/webtunnel.pool"
 snowflake_pool="${work_dir}/snowflake.pool"
@@ -146,7 +179,7 @@ if [ "${TOR_BRIDGE_TRANSPORT}" = "auto" ] || [ "${TOR_BRIDGE_TRANSPORT}" = "obfs
         builtin_dataset obfs4 "${obfs4_pool}" || true
     fi
 
-    if ipv6_is_available; then
+    if [ "${allow_ipv6_bridges}" = "true" ]; then
         ipv6_pool="${work_dir}/obfs4-ipv6.pool"
         if source_dataset obfs4-ipv6 obfs4 "${TOR_BRIDGES_OBFS4_IPV6_URL}" "${ipv6_pool}"; then
             cat "${ipv6_pool}" >> "${obfs4_pool}"

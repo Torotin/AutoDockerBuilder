@@ -1,6 +1,7 @@
 ARG DEBIAN_VERSION=13-slim
 ARG LYREBIRD_VERSION=0.8.1
 ARG GOST_VERSION=3.2.6
+ARG DNSPROXY_VERSION=0.81.4
 
 FROM golang:1.24-bookworm AS lyrebird-builder
 ARG LYREBIRD_VERSION
@@ -11,6 +12,16 @@ RUN git clone --depth 1 --branch "lyrebird-${LYREBIRD_VERSION}" \
         https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird.git /src/lyrebird; \
     make -C /src/lyrebird build; \
     install -m 0755 /src/lyrebird/lyrebird /usr/local/bin/lyrebird
+
+FROM golang:1.26-bookworm AS dnsproxy-builder
+ARG DNSPROXY_VERSION
+RUN apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates git make; \
+    rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch "v${DNSPROXY_VERSION}" \
+        https://github.com/AdguardTeam/dnsproxy.git /src/dnsproxy; \
+    make -C /src/dnsproxy build VERSION="${DNSPROXY_VERSION}"; \
+    install -m 0755 /src/dnsproxy/dnsproxy /usr/local/bin/dnsproxy
 
 FROM debian:${DEBIAN_VERSION} AS gost-download
 ARG GOST_VERSION
@@ -31,10 +42,11 @@ FROM debian:${DEBIAN_VERSION}
 ARG TOR_VERSION=0.4.9.8-1~d13.trixie+1
 ARG LYREBIRD_VERSION
 ARG GOST_VERSION
+ARG DNSPROXY_VERSION
 
 LABEL org.opencontainers.image.title="Tor Proxy"
 LABEL org.opencontainers.image.description="Tor DNS, SOCKS5 and HTTP proxy with refreshed bridge feeds"
-LABEL org.opencontainers.image.version="tor-${TOR_VERSION}_lyrebird-${LYREBIRD_VERSION}_gost-${GOST_VERSION}"
+LABEL org.opencontainers.image.version="tor-${TOR_VERSION}_lyrebird-${LYREBIRD_VERSION}_gost-${GOST_VERSION}_dnsproxy-${DNSPROXY_VERSION}"
 
 RUN set -eux; \
     apt-get update; \
@@ -56,6 +68,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=lyrebird-builder /usr/local/bin/lyrebird /usr/local/bin/lyrebird
+COPY --from=dnsproxy-builder /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
 COPY --from=gost-download /usr/local/bin/gost /usr/local/bin/gost
 COPY bridge-sync.sh /usr/local/bin/tor-proxy-bridge-sync
 COPY entrypoint.sh /usr/local/bin/tor-proxy-entrypoint
@@ -72,6 +85,7 @@ RUN set -eux; \
     jq -e '(.bridges.obfs4 | length > 0) and (.bridges.snowflake | length > 0)' \
         /usr/local/share/tor-proxy/pt_config.json >/dev/null; \
     test -x /usr/local/bin/lyrebird; \
+    test -x /usr/local/bin/dnsproxy; \
     test -x /usr/local/bin/gost
 
 VOLUME ["/var/lib/tor", "/var/lib/tor-proxy"]

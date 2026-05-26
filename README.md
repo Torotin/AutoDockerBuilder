@@ -18,12 +18,12 @@
 | dockcheck | [`mag37/dockcheck`](https://github.com/mag37/dockcheck) | `torotin/dockcheck` | `dockcheck-Docker-selfhosted.yml` |
 | telemt-stack | [`telemt/telemt`](https://github.com/telemt/telemt) + [`amirotin/telemt_panel`](https://github.com/amirotin/telemt_panel) | `torotin/telemt-stack` | `Telemt-Stack-Docker-selfhosted.yml` |
 | Warp Plus | [`bepass-org/warp-plus`](https://github.com/bepass-org/warp-plus) | `torotin/warp-plus` | `WarpPlus-Docker-Selfhosted.yml` |
-| Tor Proxy | [`torproject/tor`](https://gitlab.torproject.org/tpo/core/tor) + [`lyrebird`](https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird) + [`go-gost/gost`](https://github.com/go-gost/gost) | `torotin/tor-proxy` | `TorProxy-Docker-selfhosted.yml` |
+| Tor Proxy | [`torproject/tor`](https://gitlab.torproject.org/tpo/core/tor) + [`lyrebird`](https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird) + [`go-gost/gost`](https://github.com/go-gost/gost) + [`AdguardTeam/dnsproxy`](https://github.com/AdguardTeam/dnsproxy) | `torotin/tor-proxy` | `TorProxy-Docker-selfhosted.yml` |
 
 > Важно: Warp Plus пока остаётся отдельным workflow и не переведён на общий `_docker-project-build.yml`.
 > Warp Plus не использует общий `_docker-project-build.yml`,
 > поэтому логика `build_force` и `recreate_release` может отличаться и реализована отдельно.
-> Tor Proxy также использует отдельный workflow, поскольку его immutable tag составляется из stable-версий трех runtime-компонентов.
+> Tor Proxy также использует отдельный workflow, поскольку его immutable tag составляется из stable-версий четырех runtime-компонентов.
 
 ---
 
@@ -520,12 +520,17 @@ Warp Plus пока использует отдельный workflow.
 
 Tor Proxy использует отдельный workflow и публикует `torotin/tor-proxy` только для `linux/amd64`.
 При сборке workflow разрешает текущие stable-версии Tor из `deb.torproject.org`,
-Lyrebird из Tor Project GitLab и GOST из GitHub Releases. Образ публикуется с
-tag `latest` и составным immutable tag вида:
+Lyrebird из Tor Project GitLab, GOST и `dnsproxy` из GitHub Releases. Эти
+версии явно передаются Dockerfile; его pinned defaults предназначены только
+для ручной локальной сборки. Образ публикуется с `latest` и составным immutable
+tag вида:
 
 ```text
-tor-<tor-version>_lyrebird-<lyrebird-version>_gost-<gost-version>
+tor-<tor-version>_lyrebird-<lyrebird-version>_gost-<gost-version>_dnsproxy-<dnsproxy-version>
 ```
+
+`dnsproxy` собирается из exact Git tag разрешённой stable-версии: upstream
+release не предоставляет отдельный checksum asset для Linux archive.
 
 Контейнер предоставляет:
 
@@ -550,13 +555,21 @@ curl --fail --silent --socks5-hostname tor-proxy:1080 \
 | --- | --- | --- |
 | `TOR_BRIDGES_ENABLED` | `true` | Включить мосты при запуске |
 | `TOR_BRIDGE_TRANSPORT` | `auto` | `auto`, `obfs4`, `webtunnel` или `snowflake` |
-| `TOR_BRIDGES_MAX_PER_TRANSPORT` | `32` | Максимум случайно выбранных bridge lines одного transport |
+| `TOR_BRIDGES_MAX_PER_TRANSPORT` | `2` | Максимум bridge lines одного transport; ограничивает CPU при bootstrap |
+| `TOR_MAX_CLIENT_CIRCUITS_PENDING` | `4` | Ограничение одновременных ожидающих client circuits Tor |
+| `TOR_IPV6_AVAILABLE` | `auto` | Разрешить IPv6 bridge endpoints только при рабочем outbound IPv6 VPS |
 | `TOR_BRIDGES_OBFS4_URL` | Tor-Bridges-Collector raw feed | Источник `obfs4` |
 | `TOR_BRIDGES_OBFS4_IPV6_URL` | Tor-Bridges-Collector raw feed | Источник IPv6 `obfs4`, используется только при исходящем IPv6 |
 | `TOR_BRIDGES_WEBTUNNEL_URL` | Tor-Bridges-Collector raw feed | Источник `webtunnel` |
 | `TOR_BRIDGES_SNOWFLAKE_URL` | official Tor Browser `pt_config.json` | Источник `snowflake` |
+| `TOR_BOOTSTRAP_DNS_ENABLED` | `true` | Использовать внутренний encrypted DNS до/во время bootstrap |
+| `TOR_BOOTSTRAP_DNS_UPSTREAMS` | AdGuard DoH, DoT, DoQ | Upstreams внутреннего `dnsproxy`; принимает также DNS stamps |
+| `TOR_BOOTSTRAP_DNS_BOOTSTRAPS` | `94.140.14.14:53 94.140.15.15:53` | IPv4 bootstrap resolvers для encrypted upstream hostnames |
+| `TOR_BOOTSTRAP_DNS_PLAIN_FALLBACK` | `true` | Разрешить исходный container DNS как bootstrap fallback |
+| `TOR_BOOTSTRAP_DNS_FALLBACKS` | пусто | Явная замена plaintext bootstrap fallback resolvers |
 | `TOR_UPDATE_ON_START` | `true` | Попытаться обновить Tor из official APT repo перед запуском |
 | `TOR_PROXY_LOGIN`, `TOR_PROXY_PASSWORD` | пусто | Опциональная auth для SOCKS5/HTTP; задаются только вместе |
+| `TOR_PROXY_CPUS`, `TOR_PROXY_MEMORY_LIMIT` | `0.75`, `512m` | Compose resource limits для малого VPS |
 
 Fetched bridges валидируются, дедуплицируются и сохраняются в
 `/var/lib/tor-proxy`; при ошибке feed используется последний cache. В образ
@@ -566,9 +579,32 @@ feed/cache завершает запуск ошибкой. Публичные fe
 `scriptzteam/Tor-Bridges-Collector` являются недоверенным внешним источником и
 могут быть заменены URL-переменными.
 
-Доступ к IPv6-only назначениям через proxy зависит от выбранного Tor exit с
-IPv6 и политики целевого ресурса. IPv6 `obfs4` bridge сам по себе не дает
-IPv6-over-IPv4 и пропускается на хосте без исходящего IPv6.
+Для VPS с одним CPU `auto` сохраняет все три transport, но выбирает не более
+двух мостов каждого типа и задаёт `MaxClientCircuitsPending 4`; это предотвращает
+массовые параллельные попытки bootstrap. Внутренний `dnsproxy` обслуживает
+только загрузку feeds и доменные соединения Lyrebird через DoH/DoT/DoQ;
+upstreams опрашиваются параллельно, чтобы заблокированный DoT/DoQ не задерживал
+доступный DoH.
+Опубликованный порт `53` по-прежнему пересылает DNS исключительно через Tor.
+При отказе encrypted upstreams plaintext fallback применяется только к этому
+внутреннему bootstrap resolution.
+
+Пример `.env` для малого VPS:
+
+```dotenv
+TOR_PROXY_CPUS=0.75
+TOR_PROXY_MEMORY_LIMIT=512m
+TOR_BRIDGES_MAX_PER_TRANSPORT=2
+TOR_MAX_CLIENT_CIRCUITS_PENDING=4
+TOR_IPV6_AVAILABLE=false
+TOR_BOOTSTRAP_DNS_UPSTREAMS=https://dns.adguard-dns.com/dns-query tls://dns.adguard-dns.com quic://dns.adguard-dns.com
+TOR_BOOTSTRAP_DNS_BOOTSTRAPS=94.140.14.14:53 94.140.15.15:53
+TOR_BOOTSTRAP_DNS_PLAIN_FALLBACK=true
+```
+
+Доступ к IPv6-only назначениям включен на SOCKS listener и зависит от
+выбранного Tor exit с IPv6 и политики целевого ресурса. IPv6 bridge endpoints
+не дают IPv6-over-IPv4 и фильтруются, если у VPS нет рабочего outbound IPv6.
 
 ---
 
