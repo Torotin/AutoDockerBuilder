@@ -18,10 +18,12 @@
 | dockcheck | [`mag37/dockcheck`](https://github.com/mag37/dockcheck) | `torotin/dockcheck` | `dockcheck-Docker-selfhosted.yml` |
 | telemt-stack | [`telemt/telemt`](https://github.com/telemt/telemt) + [`amirotin/telemt_panel`](https://github.com/amirotin/telemt_panel) | `torotin/telemt-stack` | `Telemt-Stack-Docker-selfhosted.yml` |
 | Warp Plus | [`bepass-org/warp-plus`](https://github.com/bepass-org/warp-plus) | `torotin/warp-plus` | `WarpPlus-Docker-Selfhosted.yml` |
+| Tor Proxy | [`torproject/tor`](https://gitlab.torproject.org/tpo/core/tor) + [`lyrebird`](https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird) + [`go-gost/gost`](https://github.com/go-gost/gost) | `torotin/tor-proxy` | `TorProxy-Docker-selfhosted.yml` |
 
 > Важно: Warp Plus пока остаётся отдельным workflow и не переведён на общий `_docker-project-build.yml`.
 > Warp Plus не использует общий `_docker-project-build.yml`,
 > поэтому логика `build_force` и `recreate_release` может отличаться и реализована отдельно.
+> Tor Proxy также использует отдельный workflow, поскольку его immutable tag составляется из stable-версий трех runtime-компонентов.
 
 ---
 
@@ -212,6 +214,7 @@ workdir: .
 | dockcheck | `linux/amd64`              | `linux/amd64`, `linux/arm64/v8`              |
 | telemt-stack | `linux/amd64`           | `linux/amd64`, `linux/arm64/v8`              |
 | Warp Plus | `linux/amd64`              | `linux/amd64`                                |
+| Tor Proxy | `linux/amd64`              | `linux/amd64`                                |
 
 ---
 
@@ -363,6 +366,7 @@ self-hosted-runner:
     dockcheck-Docker-selfhosted.yml  # wrapper для dockcheck
     Telemt-Stack-Docker-selfhosted.yml # wrapper для telemt-stack
     WarpPlus-Docker-Selfhosted.yml   # отдельный workflow для Warp Plus
+    TorProxy-Docker-selfhosted.yml   # отдельный workflow для Tor Proxy
 
 bin/
   caddy/
@@ -388,6 +392,13 @@ bin/
   telemt-stack/
     dockerfile
     DockerEntrypoint.sh
+
+  tor-proxy/
+    Dockerfile
+    entrypoint.sh
+    bridge-sync.sh
+    healthcheck.sh
+    docker-compose.tor-proxy.yml
 
   warp/
     Dockerfile
@@ -505,6 +516,60 @@ Warp Plus пока использует отдельный workflow.
 * публикует `latest` и `<upstream_tag>`;
 * в GitHub Release прикладывается multi-arch/latest tarball.
 
+### Tor Proxy
+
+Tor Proxy использует отдельный workflow и публикует `torotin/tor-proxy` только для `linux/amd64`.
+При сборке workflow разрешает текущие stable-версии Tor из `deb.torproject.org`,
+Lyrebird из Tor Project GitLab и GOST из GitHub Releases. Образ публикуется с
+tag `latest` и составным immutable tag вида:
+
+```text
+tor-<tor-version>_lyrebird-<lyrebird-version>_gost-<gost-version>
+```
+
+Контейнер предоставляет:
+
+| Endpoint | Назначение |
+| --- | --- |
+| `tor-proxy:53` TCP/UDP | DNS через Tor внутри Docker network |
+| `tor-proxy:1080` | SOCKS5 proxy |
+| `tor-proxy:8080` | HTTP proxy |
+
+Пример запуска находится в `bin/tor-proxy/docker-compose.tor-proxy.yml`.
+Host-порты по умолчанию публикуются только на `127.0.0.1`, тогда как другие
+контейнеры общей сети используют hostname `tor-proxy`:
+
+```bash
+curl --fail --silent --socks5-hostname tor-proxy:1080 \
+  https://check.torproject.org/api/ip | grep '"IsTor":true'
+```
+
+Основные переменные окружения:
+
+| Переменная | Default | Назначение |
+| --- | --- | --- |
+| `TOR_BRIDGES_ENABLED` | `true` | Включить мосты при запуске |
+| `TOR_BRIDGE_TRANSPORT` | `auto` | `auto`, `obfs4`, `webtunnel` или `snowflake` |
+| `TOR_BRIDGES_MAX_PER_TRANSPORT` | `32` | Максимум случайно выбранных bridge lines одного transport |
+| `TOR_BRIDGES_OBFS4_URL` | Tor-Bridges-Collector raw feed | Источник `obfs4` |
+| `TOR_BRIDGES_OBFS4_IPV6_URL` | Tor-Bridges-Collector raw feed | Источник IPv6 `obfs4`, используется только при исходящем IPv6 |
+| `TOR_BRIDGES_WEBTUNNEL_URL` | Tor-Bridges-Collector raw feed | Источник `webtunnel` |
+| `TOR_BRIDGES_SNOWFLAKE_URL` | official Tor Browser `pt_config.json` | Источник `snowflake` |
+| `TOR_UPDATE_ON_START` | `true` | Попытаться обновить Tor из official APT repo перед запуском |
+| `TOR_PROXY_LOGIN`, `TOR_PROXY_PASSWORD` | пусто | Опциональная auth для SOCKS5/HTTP; задаются только вместе |
+
+Fetched bridges валидируются, дедуплицируются и сохраняются в
+`/var/lib/tor-proxy`; при ошибке feed используется последний cache. В образ
+включены official Tor Browser defaults для `obfs4` и `snowflake`; у
+`webtunnel` bundled fallback нет, поэтому explicit `webtunnel` без рабочего
+feed/cache завершает запуск ошибкой. Публичные feed
+`scriptzteam/Tor-Bridges-Collector` являются недоверенным внешним источником и
+могут быть заменены URL-переменными.
+
+Доступ к IPv6-only назначениям через proxy зависит от выбранного Tor exit с
+IPv6 и политики целевого ресурса. IPv6 `obfs4` bridge сам по себе не дает
+IPv6-over-IPv4 и пропускается на хосте без исходящего IPv6.
+
 ---
 
 ## Типовой pipeline
@@ -531,12 +596,13 @@ create GitHub Release
 
 ### При push
 
-`daily-trigger.yml` реагирует на push только в ветки `main` и `test`, и только если изменены файлы:
+`daily-trigger.yml` реагирует на push в ветки `main`, `test`, `dev` и `prod`, и только если изменены файлы:
 
 ```yaml
-branches: [main, test]
+branches: [main, test, dev, prod]
 paths:
   - "bin/**"
+  - "tests/tor-proxy/**"
   - ".github/workflows/**"
 ```
 
@@ -588,7 +654,7 @@ recreate_release = true
 * вместе с release удаляется соответствующий git tag;
 * затем создаётся новый release с тем же именем tag, но с актуальными artefacts и release body.
 
-Для `WarpPlus-Docker-Selfhosted.yml` `recreate_release` при push не передаётся, потому что Warp Plus использует отдельный workflow и не поддерживает этот input.
+Для `WarpPlus-Docker-Selfhosted.yml` `recreate_release` при push не передаётся, потому что Warp Plus использует отдельный workflow и не поддерживает этот input. Для отдельного `TorProxy-Docker-selfhosted.yml` этот input поддерживается и передается.
 
 Выбранные workflow запускаются последовательно:
 
@@ -638,6 +704,9 @@ release_skip
 | `.github/workflows/Telemt-Stack-Docker-selfhosted.yml` | `Telemt-Stack-Docker-selfhosted.yml` |
 | `bin/warp/**` | `WarpPlus-Docker-Selfhosted.yml` |
 | `.github/workflows/WarpPlus-Docker-Selfhosted.yml` | `WarpPlus-Docker-Selfhosted.yml` |
+| `bin/tor-proxy/**` | `TorProxy-Docker-selfhosted.yml` |
+| `tests/tor-proxy/**` | `TorProxy-Docker-selfhosted.yml` |
+| `.github/workflows/TorProxy-Docker-selfhosted.yml` | `TorProxy-Docker-selfhosted.yml` |
 | `.github/workflows/_docker-project-build.yml` | все проекты на общем reusable workflow: `3x-ui`, `Caddy-L4`, `usque`, `dockcheck`, `telemt-stack` |
 
 Примеры:

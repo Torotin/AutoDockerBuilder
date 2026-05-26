@@ -8,6 +8,7 @@ on:
     branches: [main, test, dev, prod]
     paths:
       - "bin/**"
+      - "tests/tor-proxy/**"
       - ".github/workflows/**"
 
 permissions:
@@ -65,6 +66,12 @@ jobs:
               {
                 workflow: 'Telemt-Stack-Docker-selfhosted.yml',
                 prefixes: ['bin/telemt-stack/', '.github/workflows/Telemt-Stack-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
+                inputs: {},
+                recreateReleaseOnPush: true,
+              },
+              {
+                workflow: 'TorProxy-Docker-selfhosted.yml',
+                prefixes: ['bin/tor-proxy/', 'tests/tor-proxy/', '.github/workflows/TorProxy-Docker-selfhosted.yml'],
                 inputs: {},
                 recreateReleaseOnPush: true,
               },

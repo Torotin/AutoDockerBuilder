@@ -1,0 +1,257 @@
+name: TorProxy-Docker-SelfHosted
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_skip:
+        description: Skip build
+        required: false
+        default: false
+        type: boolean
+      build_force:
+        description: Force build even if release exists
+        required: false
+        default: false
+        type: boolean
+      recreate_release:
+        description: Delete existing GitHub Release before creating a new one
+        required: false
+        default: false
+        type: boolean
+      release_skip:
+        description: Skip GitHub release creation
+        required: false
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      build_skip:
+        required: false
+        default: false
+        type: boolean
+      build_force:
+        required: false
+        default: false
+        type: boolean
+      recreate_release:
+        required: false
+        default: false
+        type: boolean
+      release_skip:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOCKER_REPO: torotin/tor-proxy
+  IMAGE_CONTEXT: ./bin/tor-proxy
+  ARTIFACT_PREFIX: tor-proxy
+
+jobs:
+  prepare:
+    name: Resolve Tor Proxy Runtime Versions
+    runs-on: ubuntu-latest
+    outputs:
+      tor_version: ${{ steps.versions.outputs.tor_version }}
+      lyrebird_version: ${{ steps.versions.outputs.lyrebird_version }}
+      gost_version: ${{ steps.versions.outputs.gost_version }}
+      image_tag: ${{ steps.versions.outputs.image_tag }}
+      release_tag: ${{ steps.versions.outputs.release_tag }}
+      skip: ${{ steps.release-check.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve stable runtime versions
+        id: versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          tor_version="$(
+            curl -fsSL https://deb.torproject.org/torproject.org/dists/trixie/main/binary-amd64/Packages.gz |
+              gzip -dc |
+              awk '/^Package: tor$/{found=1} found && /^Version: /{print $2; exit}'
+          )"
+          lyrebird_version="$(
+            git ls-remote --tags https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird.git |
+              sed -n 's#.*refs/tags/lyrebird-\([0-9][0-9.]*\)$#\1#p' |
+              sort -V |
+              tail -n 1
+          )"
+          gost_version="$(
+            curl -fsSL https://api.github.com/repos/go-gost/gost/releases/latest |
+              jq -r '.tag_name | sub("^v"; "")'
+          )"
+          test -n "${tor_version}" && test -n "${lyrebird_version}" && test -n "${gost_version}"
+
+          safe_tor="$(tr '~+' '--' <<< "${tor_version}")"
+          image_tag="tor-${safe_tor}_lyrebird-${lyrebird_version}_gost-${gost_version}"
+          release_tag="tor-proxy_${image_tag}"
+          {
+            echo "tor_version=${tor_version}"
+            echo "lyrebird_version=${lyrebird_version}"
+            echo "gost_version=${gost_version}"
+            echo "image_tag=${image_tag}"
+            echo "release_tag=${release_tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Check existing release
+        id: release-check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.versions.outputs.release_tag }}
+          BUILD_SKIP: ${{ inputs.build_skip }}
+          BUILD_FORCE: ${{ inputs.build_force }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${BUILD_SKIP}" = "true" ]; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+          elif gh release view "${RELEASE_TAG}" >/dev/null 2>&1 && [ "${BUILD_FORCE}" != "true" ]; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "skip=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  build:
+    name: Build And Push Tor Proxy
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'false'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate shell runtime and compose file
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck bin/tor-proxy/*.sh tests/tor-proxy/*.sh
+          bash tests/tor-proxy/test-bridge-sync.sh
+          bash tests/tor-proxy/test-entrypoint-config.sh
+          bash tests/tor-proxy/test-healthcheck-auth.sh
+          docker compose -f bin/tor-proxy/docker-compose.tor-proxy.yml config >/dev/null
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ env.IMAGE_CONTEXT }}
+          file: ${{ env.IMAGE_CONTEXT }}/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.DOCKER_REPO }}:latest
+            ${{ env.DOCKER_REPO }}:${{ needs.prepare.outputs.image_tag }}
+          build-args: |
+            TOR_VERSION=${{ needs.prepare.outputs.tor_version }}
+            LYREBIRD_VERSION=${{ needs.prepare.outputs.lyrebird_version }}
+            GOST_VERSION=${{ needs.prepare.outputs.gost_version }}
+          cache-from: |
+            type=gha,scope=tor-proxy
+            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache
+          cache-to: |
+            type=gha,mode=max,scope=tor-proxy
+            type=registry,ref=${{ env.DOCKER_REPO }}:buildcache,mode=max
+
+  release:
+    name: Release Tor Proxy
+    runs-on: ubuntu-latest
+    needs: [prepare, build]
+    if: needs.prepare.outputs.skip == 'false' && needs.build.result == 'success' && inputs.release_skip == false
+    steps:
+      - name: Login to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+
+      - name: Export image archive
+        env:
+          IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tar-files
+          docker pull --platform linux/amd64 "${DOCKER_REPO}:${IMAGE_TAG}"
+          docker save "${DOCKER_REPO}:${IMAGE_TAG}" | gzip > "tar-files/${ARTIFACT_PREFIX}-${IMAGE_TAG}-linux-amd64.tar.gz"
+          docker pull "${DOCKER_REPO}:latest"
+          docker save "${DOCKER_REPO}:latest" | gzip > "tar-files/${ARTIFACT_PREFIX}-latest.tar.gz"
+
+      - name: Write release notes
+        env:
+          TOR_VERSION: ${{ needs.prepare.outputs.tor_version }}
+          LYREBIRD_VERSION: ${{ needs.prepare.outputs.lyrebird_version }}
+          GOST_VERSION: ${{ needs.prepare.outputs.gost_version }}
+          IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "Автоматическая Docker-сборка Tor Proxy."
+            echo
+            echo "### Runtime versions"
+            echo "- Tor: \`${TOR_VERSION}\` from \`deb.torproject.org\`"
+            echo "- Lyrebird: \`${LYREBIRD_VERSION}\`"
+            echo "- GOST: \`${GOST_VERSION}\`"
+            echo
+            echo "### Image"
+            echo "- \`${DOCKER_REPO}:latest\`"
+            echo "- \`${DOCKER_REPO}:${IMAGE_TAG}\`"
+            echo
+            echo "Platform: \`linux/amd64\`"
+          } > release-body.md
+
+      - name: Delete existing release
+        if: inputs.recreate_release == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release delete "${RELEASE_TAG}" --yes --cleanup-tag
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${RELEASE_TAG}" \
+            --title "Tor Proxy Release ${IMAGE_TAG}" \
+            --notes-file release-body.md \
+            ./tar-files/*.tar.gz
