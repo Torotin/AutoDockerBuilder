@@ -46,12 +46,6 @@ jobs:
                 recreateReleaseOnPush: true,
               },
               {
-                workflow: 'WarpPlus-Docker-Selfhosted.yml',
-                prefixes: ['bin/warp/', '.github/workflows/WarpPlus-Docker-Selfhosted.yml'],
-                inputs: {},
-                recreateReleaseOnPush: false,
-              },
-              {
                 workflow: 'usque-Docker-selfhosted.yml',
                 prefixes: ['bin/usque/', '.github/workflows/usque-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
                 inputs: {},
