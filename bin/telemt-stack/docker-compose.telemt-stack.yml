@@ -1,0 +1,23 @@
+services:
+  telemt-stack:
+    image: ${TELEMT_STACK_IMAGE:-torotin/telemt-stack:latest}
+    container_name: telemt-stack
+    hostname: telemt-stack
+    restart: unless-stopped
+    init: true
+    environment:
+      TELEMT_PANEL_ENABLED: ${TELEMT_PANEL_ENABLED:-true}
+    volumes:
+      - type: bind
+        source: ${TELEMT_CONFIG_FILE:-./telemt-config.toml}
+        target: /etc/telemt/config.toml
+        read_only: true
+      - type: bind
+        source: ${TELEMT_PANEL_CONFIG_FILE:-./telemt-panel-config.toml}
+        target: /etc/telemt-panel/config.toml
+        read_only: true
+    ports:
+      - "${TELEMT_PORT_9443:-9443}:9443/tcp"
+      - "${TELEMT_API_BIND_ADDRESS:-127.0.0.1}:${TELEMT_PORT_9091:-9091}:9091/tcp"
+      - "${TELEMT_METRICS_BIND_ADDRESS:-127.0.0.1}:${TELEMT_PORT_9090:-9090}:9090/tcp"
+      - "${TELEMT_PORT_8080:-8080}:8080/tcp"

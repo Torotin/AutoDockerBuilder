@@ -1,0 +1,55 @@
+# telemt configuration example for torotin/telemt-stack.
+# Replace every CHANGE_ME / zero-value secret before exposing this service.
+# Upstream reference: https://github.com/telemt/telemt/blob/main/config.toml
+
+[general]
+# Use upstream middle proxies for the default TLS transport path.
+use_middle_proxy = true
+log_level = "normal"
+
+[general.modes]
+classic = false
+secure = false
+tls = true
+
+[general.links]
+# Show generated links for all configured users.
+show = "*"
+# Set the public endpoint used in generated links when required:
+# public_host = "proxy.example.com"
+# public_port = 9443
+
+[server]
+# MTProxy listener exposed by docker-compose.telemt-stack.yml.
+port = 9443
+# The Compose example publishes this only on localhost by default.
+# It remains protected by host binding rather than application authentication.
+metrics_listen = "0.0.0.0:9090"
+metrics_whitelist = ["0.0.0.0/0"]
+
+[server.api]
+enabled = true
+# Binding to all container interfaces is required for the published Docker port.
+listen = "0.0.0.0:9091"
+# Docker-published requests do not necessarily reach the container as 127.0.0.1.
+# Keep the Compose localhost bind unless you replace this with trusted CIDRs.
+whitelist = ["0.0.0.0/0"]
+# Must exactly match [telemt].auth_header in telemt-panel-config.toml.
+auth_header = "Bearer CHANGE_ME_TELEMT_API_TOKEN"
+minimal_runtime_enabled = false
+minimal_runtime_cache_ttl_ms = 1000
+
+[[server.listeners]]
+ip = "0.0.0.0"
+
+[censorship]
+# SNI masking domain used for TLS mode links; change for your deployment.
+tls_domain = "CHANGE_ME.example.com"
+mask = true
+tls_emulation = true
+tls_front_dir = "tlsfront"
+
+[access.users]
+# Replace the zero secret with a 32-character hexadecimal MTProxy secret.
+# Obtain/create production credentials through your telemt provisioning flow.
+example_user = "00000000000000000000000000000000"

@@ -83,7 +83,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validate telemt-stack runtime
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v6
+
+      - name: Validate shell scripts and configuration examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck bin/telemt-stack/DockerEntrypoint.sh tests/telemt-stack/test-entrypoint.sh
+          bash tests/telemt-stack/test-entrypoint.sh
+          docker compose -f bin/telemt-stack/docker-compose.telemt-stack.yml config >/dev/null
+          python3 - <<'PY'
+          import tomllib
+
+          for path in (
+              "bin/telemt-stack/telemt-config.toml",
+              "bin/telemt-stack/telemt-panel-config.toml",
+          ):
+              with open(path, "rb") as config:
+                  tomllib.load(config)
+          PY
+
   docker:
+    needs: validate
     uses: ./.github/workflows/_docker-project-build.yml
     with:
       project_name: telemt-stack

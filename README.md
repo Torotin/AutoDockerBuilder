@@ -380,6 +380,9 @@ bin/
   telemt-stack/
     dockerfile
     DockerEntrypoint.sh
+    docker-compose.telemt-stack.yml
+    telemt-config.toml
+    telemt-panel-config.toml
 
   tor-proxy/
     Dockerfile
@@ -485,6 +488,25 @@ DOCKCHECK_REF
 * default platform: `linux/amd64`;
 * supported platforms: `linux/amd64`, `linux/arm64/v8`;
 * `linux/386` отключён.
+
+Пример автономного запуска находится в `bin/telemt-stack/docker-compose.telemt-stack.yml`.
+Рядом с ним находятся прокомментированные шаблоны конфигурации:
+
+```text
+./telemt-config.toml
+./telemt-panel-config.toml
+```
+
+Перед запуском замените placeholders API token, MTProxy secret, password hash
+и JWT secret. Compose публикует `9443` и `8080`, а control ports `9091` и
+`9090` по умолчанию доступны только через `127.0.0.1` хоста. Bind address
+control ports можно изменить через `TELEMT_API_BIND_ADDRESS` и
+`TELEMT_METRICS_BIND_ADDRESS`.
+
+Встроенная панель запускается по умолчанию. Чтобы использовать внешнюю панель,
+задайте `TELEMT_PANEL_ENABLED=false`; контейнер продолжит запускать `telemt`,
+а mount `telemt-panel-config.toml` в таком режиме можно удалить из своей
+Compose-конфигурации.
 
 ### Tor Proxy
 

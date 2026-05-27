@@ -1,0 +1,55 @@
+# telemt-panel configuration example for torotin/telemt-stack.
+# Replace credential placeholders before exposing the panel.
+# Upstream reference:
+# https://github.com/amirotin/telemt_panel/blob/main/config.example.toml
+
+# Web UI listener exposed by docker-compose.telemt-stack.yml.
+listen = "0.0.0.0:8080"
+# Optional URL prefix when serving behind a reverse proxy:
+# base_path = "/telemt-panel"
+
+[telemt]
+# telemt runs in the same container when the bundled panel is enabled.
+url = "http://127.0.0.1:9091"
+# Must exactly match [server.api].auth_header in telemt-config.toml.
+auth_header = "Bearer CHANGE_ME_TELEMT_API_TOKEN"
+# The stack image installs and configures telemt at these fixed paths.
+binary_path = "/usr/local/bin/telemt"
+config_path = "/etc/telemt/config.toml"
+# Do not set container_name here: telemt shares this container with the panel.
+
+[panel]
+binary_path = "/usr/local/bin/telemt-panel"
+# github_repo = "amirotin/telemt_panel"
+
+[auth]
+username = "admin"
+# Generate a production bcrypt hash with: telemt-panel hash-password
+password_hash = "$2a$10$CHANGE_ME"
+# Generate a random value with: openssl rand -base64 32
+jwt_secret = "CHANGE_ME_WITH_RANDOM_SECRET_AT_LEAST_32_CHARS"
+session_ttl = "24h"
+
+# Optional update checks. Automatic restarts interrupt active panel sessions.
+# [telemt.auto_update]
+# enabled = false
+# check_interval = "1h"
+# auto_apply = false
+#
+# [panel.auto_update]
+# enabled = false
+# check_interval = "1h"
+# auto_apply = false
+
+# Optional TLS termination in the panel. Omit when TLS terminates upstream.
+# [tls]
+# cert_file = "/etc/telemt-panel/tls/fullchain.pem"
+# key_file = "/etc/telemt-panel/tls/privkey.pem"
+# Alternatively use ACME; do not combine with cert_file/key_file:
+# acme_domain = "panel.example.com"
+# acme_cache_dir = "/var/lib/telemt-panel/certs"
+
+# Optional GeoIP databases for richer IP display in the panel.
+# [geoip]
+# db_path = "/var/lib/telemt-panel/GeoLite2-City.mmdb"
+# asn_db_path = "/var/lib/telemt-panel/GeoLite2-ASN.mmdb"
