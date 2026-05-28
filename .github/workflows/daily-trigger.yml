@@ -31,6 +31,9 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
+            const apiHeaders = {
+              'X-GitHub-Api-Version': '2026-03-10',
+            };
 
             const projects = [
               {
@@ -80,7 +83,7 @@ jobs:
               ref = ref.replace(/^refs\/(heads|tags)\//, '');
               if (ref) return ref;
 
-              const repoInfo = await github.rest.repos.get({ owner, repo });
+              const repoInfo = await github.rest.repos.get({ owner, repo, headers: apiHeaders });
               return repoInfo.data.default_branch || 'main';
             }
 
@@ -101,6 +104,7 @@ jobs:
                     repo,
                     basehead: `${before}...${head}`,
                     per_page: 100,
+                    headers: apiHeaders,
                   });
                   for (const file of compare.data.files || []) files.add(file.filename);
                 } catch (error) {
@@ -120,6 +124,7 @@ jobs:
                 event: 'workflow_dispatch',
                 per_page: options.per_page || 50,
                 status: options.status,
+                headers: apiHeaders,
               });
               return response.data.workflow_runs || [];
             }
@@ -136,6 +141,7 @@ jobs:
                     workflow_id: workflow,
                     ref,
                     ...(inputs && Object.keys(inputs).length ? { inputs } : {}),
+                    headers: apiHeaders,
                   });
                   return beforeIds;
                 } catch (error) {
@@ -162,7 +168,12 @@ jobs:
             async function waitForRunCompletion(workflow, runId) {
               const deadline = Date.now() + 6 * 60 * 60 * 1000;
               while (Date.now() < deadline) {
-                const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId });
+                const { data: run } = await github.rest.actions.getWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: runId,
+                  headers: apiHeaders,
+                });
                 if (run.status === 'completed') {
                   core.info(`Run ${runId} of ${workflow} completed with conclusion: ${run.conclusion}`);
                   return run.conclusion;

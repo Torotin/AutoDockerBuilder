@@ -16,6 +16,12 @@ services:
         source: ${TELEMT_PANEL_CONFIG_FILE:-./telemt-panel-config.toml}
         target: /etc/telemt-panel/config.toml
         read_only: true
+      # Required by telemt-panel Logs UI when [telemt].container_name is set.
+      # Docker socket access is powerful; mount it only on trusted hosts.
+      # - type: bind
+      #   source: /var/run/docker.sock
+      #   target: /var/run/docker.sock
+      #   read_only: true
     ports:
       - "${TELEMT_PORT_9443:-9443}:9443/tcp"
       - "${TELEMT_API_BIND_ADDRESS:-127.0.0.1}:${TELEMT_PORT_9091:-9091}:9091/tcp"

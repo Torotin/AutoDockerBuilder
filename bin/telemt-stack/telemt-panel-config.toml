@@ -16,7 +16,10 @@ auth_header = "Bearer CHANGE_ME_TELEMT_API_TOKEN"
 # The stack image installs and configures telemt at these fixed paths.
 binary_path = "/usr/local/bin/telemt"
 config_path = "/etc/telemt/config.toml"
-# Do not set container_name here: telemt shares this container with the panel.
+# Enables the UI Logs page inside Docker. The value must match the Compose
+# service/container name, and docker-compose.telemt-stack.yml must mount
+# /var/run/docker.sock for read-only Docker Engine API access.
+container_name = "telemt-stack"
 
 [panel]
 binary_path = "/usr/local/bin/telemt-panel"

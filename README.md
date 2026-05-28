@@ -503,6 +503,13 @@ DOCKCHECK_REF
 control ports можно изменить через `TELEMT_API_BIND_ADDRESS` и
 `TELEMT_METRICS_BIND_ADDRESS`.
 
+Для страницы логов в telemt-panel шаблон задаёт `container_name = "telemt-stack"`
+и Compose монтирует `/var/run/docker.sock` read-only. Это позволяет панели
+читать `docker logs telemt-stack` через Docker Engine API вместо `journalctl`,
+которого нет внутри контейнера. Docker socket даёт широкие возможности
+управления Docker host, поэтому используйте этот пример только на доверенных
+хостах или удалите mount, если логи в UI не нужны.
+
 Встроенная панель запускается по умолчанию. Чтобы использовать внешнюю панель,
 задайте `TELEMT_PANEL_ENABLED=false`; контейнер продолжит запускать `telemt`,
 а mount `telemt-panel-config.toml` в таком режиме можно удалить из своей
