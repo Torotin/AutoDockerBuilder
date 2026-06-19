@@ -14,7 +14,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 COPY frontend/ ./
-COPY web/translation /src/web/translation
+COPY internal/web/translation /src/internal/web/translation
 RUN npm run build
 
 # ========================================================
@@ -37,7 +37,7 @@ RUN alpine_version="$(cut -d. -f1,2 /etc/alpine-release)" \
   bash
 
 COPY . .
-COPY --from=frontend /src/web/dist ./web/dist
+COPY --from=frontend /src/internal/web/dist ./internal/web/dist
 
 ENV CGO_ENABLED=1
 ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
@@ -77,7 +77,7 @@ RUN alpine_version="$(cut -d. -f1,2 /etc/alpine-release)" \
 COPY --from=builder /app/build /app/
 COPY --from=builder /app/DockerEntrypoint.sh /app/
 COPY --from=builder /app/x-ui.sh /usr/bin/x-ui
-COPY --from=builder /app/web/translation /app/web/translation
+COPY --from=builder /app/internal/web/translation /app/internal/web/translation
 
 # Configure fail2ban
 RUN rm -f /etc/fail2ban/jail.d/alpine-ssh.conf \
@@ -97,7 +97,12 @@ RUN chmod +x \
 ENV XUI_ENABLE_FAIL2BAN="false"
 ENV XUI_LOG_LEVEL="info"
 ENV XUI_LOG_FOLDER="/var/log/3x-ui"
+ENV XUI_IN_DOCKER="true"
+ENV XUI_MAIN_FOLDER="/app"
+ENV XUI_DB_TYPE=""
+ENV XUI_DB_DSN=""
 
+EXPOSE 2053
 
 # Define volume for persistent configuration
 VOLUME [ "/etc/x-ui" ]
