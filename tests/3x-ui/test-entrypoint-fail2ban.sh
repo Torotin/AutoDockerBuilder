@@ -19,6 +19,10 @@ sed 's/\r$//' /fixture/DockerEntrypoint.sh > /tmp/DockerEntrypoint.sh
 mkdir -p /app /stub /state
 cat > /app/x-ui <<'EOF'
 #!/bin/sh
+if [ "${1:-}" = "setting" ]; then
+  echo "port: 2053"
+  exit 0
+fi
 exit 0
 EOF
 cat > /stub/sleep <<'EOF'
@@ -40,8 +44,11 @@ test -f /state/logs/3xipl-banned.log
 grep -Fqx -- 'logpath=/state/logs/3xipl.log' /etc/fail2ban/jail.d/3x-ipl.conf
 grep -Fq -- '\[LIMIT_IP\]' /etc/fail2ban/filter.d/3x-ipl.conf
 grep -Fq -- 'actionstart = <iptables> -N f2b-<name>' /etc/fail2ban/action.d/3x-ipl.conf
-grep -Fq -- 'actionban = <iptables> -I f2b-<name> 1 -s <ip> -j <blocktype>' /etc/fail2ban/action.d/3x-ipl.conf
-grep -Fq -- 'actionunban = <iptables> -D f2b-<name> -s <ip> -j <blocktype>' /etc/fail2ban/action.d/3x-ipl.conf
+grep -Fq -- 'actionban = <iptables> -I f2b-<name> 1 -s <ip> -p tcp -m multiport ! --dports <exemptports> -j <blocktype>' /etc/fail2ban/action.d/3x-ipl.conf
+grep -Fq -- '<iptables> -I f2b-<name> 1 -s <ip> -p udp -m multiport ! --dports <exemptports> -j <blocktype>' /etc/fail2ban/action.d/3x-ipl.conf
+grep -Fq -- 'actionunban = <iptables> -D f2b-<name> -s <ip> -p tcp -m multiport ! --dports <exemptports> -j <blocktype>' /etc/fail2ban/action.d/3x-ipl.conf
+grep -Fq -- '<iptables> -D f2b-<name> -s <ip> -p udp -m multiport ! --dports <exemptports> -j <blocktype>' /etc/fail2ban/action.d/3x-ipl.conf
+grep -Fqx -- 'exemptports = 22,2053' /etc/fail2ban/action.d/3x-ipl.conf
 grep -Fq -- '/state/logs/3xipl-banned.log' /etc/fail2ban/action.d/3x-ipl.conf
 CONTAINER
 }
@@ -83,6 +90,10 @@ sed 's/\r$//' /fixture/DockerEntrypoint.sh > /tmp/DockerEntrypoint.sh
 mkdir -p /app /stub /state
 cat > /app/x-ui <<'EOF'
 #!/bin/sh
+if [ "${1:-}" = "setting" ]; then
+  echo "port: 2053"
+  exit 0
+fi
 exit 0
 EOF
 cat > /stub/sleep <<'EOF'

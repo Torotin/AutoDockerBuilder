@@ -33,6 +33,7 @@ RUN alpine_version="$(cut -d. -f1,2 /etc/alpine-release)" \
   build-base \
   gcc \
   wget \
+  curl \
   unzip \
   bash
 
