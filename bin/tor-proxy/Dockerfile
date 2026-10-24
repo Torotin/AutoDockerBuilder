@@ -38,13 +38,14 @@ RUN set -eux; \
     asset="dnsproxy-linux-amd64-v${DNSPROXY_VERSION}.tar.gz"; \
     api_url="https://api.github.com/repos/AdguardTeam/dnsproxy/releases/tags/v${DNSPROXY_VERSION}"; \
     base_url="https://github.com/AdguardTeam/dnsproxy/releases/download/v${DNSPROXY_VERSION}"; \
-    expected="$(curl -fsSL "${api_url}" | jq -r --arg name "${asset}" \
+    expected="$(curl -fsSL --retry 5 --retry-all-errors "${api_url}" | jq -r --arg name "${asset}" \
         '.assets[] | select(.name == $name) | .digest | sub("^sha256:"; "")')"; \
     test -n "${expected}" && test "${expected}" != "null"; \
     curl -fL --retry 5 "${base_url}/${asset}" -o "/tmp/${asset}"; \
     echo "${expected}  /tmp/${asset}" | sha256sum -c -; \
     tar -xzf "/tmp/${asset}" -C /tmp; \
-    install -m 0755 /tmp/dnsproxy /usr/local/bin/dnsproxy
+    test -x /tmp/linux-amd64/dnsproxy; \
+    install -m 0755 /tmp/linux-amd64/dnsproxy /usr/local/bin/dnsproxy
 
 FROM debian:${DEBIAN_VERSION}
 ARG TOR_VERSION=0.4.9.8-1~d13.trixie+1
