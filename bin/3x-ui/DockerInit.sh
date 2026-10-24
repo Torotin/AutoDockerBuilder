@@ -50,10 +50,20 @@ tar -xzf "${MTG_PKG}.tar.gz"
 mv "${MTG_PKG}/mtg-multi" "mtg-linux-${FNAME}"
 rm -rf "${MTG_PKG}" "${MTG_PKG}.tar.gz"
 chmod +x "mtg-linux-${FNAME}"
+# Base Loyalsoldier + regional packs (also used as default Xray assets).
 curl -sfLRO https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
 curl -sfLRO https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
 curl -sfLRo geoip_IR.dat https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geoip.dat
 curl -sfLRo geosite_IR.dat https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geosite.dat
 curl -sfLRo geoip_RU.dat https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat
 curl -sfLRo geosite_RU.dat https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat
+# Extra assets required by 3x-ui_pro_Docker Xray geodata template / download-db.sh.
+# Without these, a fresh container fails to start Xray (chicken-and-egg with panel geodata sync).
+curl -sfLRo geoip_v2fly.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
+curl -sfLRo geosite_v2fly.dat https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat
+curl -sfLRo geosite_refilter.dat https://github.com/1andrevich/Re-filter-lists/releases/latest/download/geosite.dat
+curl -sfLRo geoip_refilter.dat https://github.com/1andrevich/Re-filter-lists/releases/latest/download/geoip.dat
+curl -sfLRo geosite_zkeen.dat https://github.com/jameszeroX/zkeen-domains/releases/latest/download/zkeen.dat
+curl -sfLRo geoip_zkeenip.dat https://github.com/jameszeroX/zkeen-ip/releases/latest/download/zkeenip.dat
+curl -sfLRo adlist.dat https://github.com/zxc-rv/ad-filter/releases/latest/download/adlist.dat
 cd ../../
