@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Re-run without CR if this file was materialised with CRLF (Samba/autocrlf).
 # Avoid `{`/`}` here: CRLF checkouts break brace groups before re-exec.
+# $_TOR_PROXY_LAYOUT_TEST_SCRIPT and $@ must expand in the child bash -c, not here.
+# shellcheck disable=SC2016
 [ -n "${_TOR_PROXY_LAYOUT_TEST_NORCR:-}" ] || exec env _TOR_PROXY_LAYOUT_TEST_NORCR=1 _TOR_PROXY_LAYOUT_TEST_SCRIPT="$0" bash -c 'tr -d "\r" <"$_TOR_PROXY_LAYOUT_TEST_SCRIPT" | bash -s -- "$@"' bash "$@"
 set -euo pipefail
 
@@ -28,8 +30,8 @@ fi
 
 grep -qE '^ARG PT_CONFIG_REF=' <<<"${dockerfile}" ||
     fail "Dockerfile missing ARG PT_CONFIG_REF default"
-grep -q 'raw/\${PT_CONFIG_REF}/projects/tor-expert-bundle/pt_config.json' <<<"${dockerfile}" ||
-    fail "Dockerfile does not fetch pt_config via \${PT_CONFIG_REF}"
+grep -qF 'raw/${PT_CONFIG_REF}/projects/tor-expert-bundle/pt_config.json' <<<"${dockerfile}" ||
+    fail 'Dockerfile does not fetch pt_config via ${PT_CONFIG_REF}'
 if grep -q 'raw/main/projects/tor-expert-bundle/pt_config.json' <<<"${dockerfile}"; then
     fail "Dockerfile still fetches pt_config from raw/main"
 fi
