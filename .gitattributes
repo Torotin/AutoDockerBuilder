@@ -1,0 +1,8 @@
+# Text files: normalize in the object DB as LF, checkout as CRLF.
+* text=auto eol=crlf
+
+# Bash/container scripts must remain LF (CI Linux + Docker ENTRYPOINT).
+*.sh text eol=lf
+*.bash text eol=lf
+Dockerfile text eol=lf
+dockerfile text eol=lf
