@@ -1,14 +1,10 @@
 #!/usr/bin/env bash
 # Re-run without CR if this file was materialised with CRLF (Samba/autocrlf).
-SCRIPT_PATH="${_TOR_PROXY_LAYOUT_TEST_SCRIPT:-${BASH_SOURCE[0]}}"
-[ -n "${_TOR_PROXY_LAYOUT_TEST_NORCR:-}" ] || {
-    export _TOR_PROXY_LAYOUT_TEST_NORCR=1
-    export _TOR_PROXY_LAYOUT_TEST_SCRIPT="${BASH_SOURCE[0]}"
-    exec tr -d '\r' <"${BASH_SOURCE[0]}" | bash -s -- "$@"
-}
+# Avoid `{`/`}` here: CRLF checkouts break brace groups before re-exec.
+[ -n "${_TOR_PROXY_LAYOUT_TEST_NORCR:-}" ] || exec env _TOR_PROXY_LAYOUT_TEST_NORCR=1 _TOR_PROXY_LAYOUT_TEST_SCRIPT="$0" bash -c 'tr -d "\r" <"$_TOR_PROXY_LAYOUT_TEST_SCRIPT" | bash -s -- "$@"' bash "$@"
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${SCRIPT_PATH}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${_TOR_PROXY_LAYOUT_TEST_SCRIPT:-${BASH_SOURCE[0]}}")/../.." && pwd)"
 DOCKERFILE="${ROOT}/bin/tor-proxy/Dockerfile"
 WORKFLOW="${ROOT}/.github/workflows/TorProxy-Docker-selfhosted.yml"
 
