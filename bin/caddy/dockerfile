@@ -14,6 +14,10 @@ RUN apk add --no-cache \
     && update-ca-certificates
 
 # Собираем Caddy с нужными плагинами
+# Temporarily omit klzgrad/forwardproxy@naive: tip needs unreleased Caddy API
+# IdleTimeoutsFromContext and fails xcaddy against released builder images.
+# Re-enable with:
+#   --with github.com/caddyserver/forwardproxy=github.com/klzgrad/forwardproxy@naive \
 RUN xcaddy build \
     --with github.com/KimMachineGun/automemlimit \
     --with pkg.jsn.cam/caddy-defender \
@@ -24,7 +28,6 @@ RUN xcaddy build \
     --with github.com/caddyserver/transform-encoder \
     --with github.com/caddyserver/cache-handler \
     --with github.com/mholt/caddy-l4 \
-    --with github.com/caddyserver/forwardproxy=github.com/klzgrad/forwardproxy@naive \
     --with github.com/greenpau/caddy-security \
     --with github.com/hslatman/caddy-crowdsec-bouncer/http \
     --with github.com/hslatman/caddy-crowdsec-bouncer/layer4 \

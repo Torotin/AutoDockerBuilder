@@ -24,7 +24,7 @@
 - `github.com/mholt/caddy-l4`
 - `github.com/hslatman/caddy-crowdsec-bouncer` (`http`, `layer4`, `appsec`)
 - `github.com/mholt/caddy-ratelimit`
-- `github.com/caddyserver/forwardproxy` → `klzgrad/forwardproxy@naive`
+- `klzgrad/forwardproxy@naive` — **временно отключён** в `dockerfile` (tip не собирается с released Caddy)
 - `github.com/greenpau/caddy-security`
 - `github.com/KimMachineGun/automemlimit`, `pkg.jsn.cam/caddy-defender`
 - `abiosoft/caddy-json-schema`, `caddy-inspect`, `caddy-exec`
