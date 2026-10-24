@@ -10,16 +10,17 @@
 
 ## Что собирается
 
-| Проект | Upstream | Docker Hub | Workflow |
-| --- | --- | --- | --- |
-| Caddy-L4 | [`caddyserver/caddy`](https://github.com/caddyserver/caddy) | `torotin/caddy-l4` | `Caddy-L4-Docker-selfhosted.yml` |
-| 3x-ui | [`MHSanaei/3x-ui`](https://github.com/MHSanaei/3x-ui) | `torotin/3x-ui` | `3x-ui-Docker-selfhosted.yml` |
-| usque | [`Diniboy1123/usque`](https://github.com/Diniboy1123/usque) | `torotin/usque` | `usque-Docker-selfhosted.yml` |
-| dockcheck | [`mag37/dockcheck`](https://github.com/mag37/dockcheck) | `torotin/dockcheck` | `dockcheck-Docker-selfhosted.yml` |
-| telemt-stack | [`telemt/telemt`](https://github.com/telemt/telemt) + [`amirotin/telemt_panel`](https://github.com/amirotin/telemt_panel) | `torotin/telemt-stack` | `Telemt-Stack-Docker-selfhosted.yml` |
-| Tor Proxy | [`torproject/tor`](https://gitlab.torproject.org/tpo/core/tor) + [`lyrebird`](https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird) + [`go-gost/gost`](https://github.com/go-gost/gost) + [`AdguardTeam/dnsproxy`](https://github.com/AdguardTeam/dnsproxy) | `torotin/tor-proxy` | `TorProxy-Docker-selfhosted.yml` |
+| Проект | Upstream | Docker Hub | Workflow | Image docs |
+| --- | --- | --- | --- | --- |
+| Caddy-L4 | [`caddyserver/caddy`](https://github.com/caddyserver/caddy) | `torotin/caddy-l4` | `Caddy-L4-Docker-selfhosted.yml` | [`bin/caddy/README.md`](bin/caddy/README.md) |
+| 3x-ui | [`MHSanaei/3x-ui`](https://github.com/MHSanaei/3x-ui) | `torotin/3x-ui` | `3x-ui-Docker-selfhosted.yml` | [`bin/3x-ui/README.md`](bin/3x-ui/README.md) |
+| usque | [`Diniboy1123/usque`](https://github.com/Diniboy1123/usque) | `torotin/usque` | `usque-Docker-selfhosted.yml` | [`bin/usque/README.md`](bin/usque/README.md) |
+| telemt-stack | [`telemt/telemt`](https://github.com/telemt/telemt) + [`amirotin/telemt_panel`](https://github.com/amirotin/telemt_panel) | `torotin/telemt-stack` | `Telemt-Stack-Docker-selfhosted.yml` | [`bin/telemt-stack/README.md`](bin/telemt-stack/README.md) |
+| Tor Proxy | Tor + [`lyrebird`](https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird) + [`gost`](https://github.com/go-gost/gost) + [`dnsproxy`](https://github.com/AdguardTeam/dnsproxy) | `torotin/tor-proxy` | `TorProxy-Docker-selfhosted.yml` | [`bin/tor-proxy/README.md`](bin/tor-proxy/README.md) |
 
-> Tor Proxy также использует отдельный workflow, поскольку его immutable tag составляется из stable-версий четырех runtime-компонентов.
+> Контракт каждого образа (порты, env, health, upstream docs) живёт в `bin/<project>/README.md`. Этот корневой README описывает общий pipeline сборки/релизов.
+>
+> Tor Proxy использует отдельный workflow: immutable tag собирается из stable-версий четырёх runtime-компонентов.
 
 ---
 
@@ -79,7 +80,7 @@
 ```text
 Caddy-L4_v2.10.0
 3x-ui_v2.5.10
-dockcheck_v0.7.8
+usque_v1.4.1
 ```
 
 * проверка существующего GitHub Release;
@@ -152,7 +153,6 @@ workdir: ./WORKDIR/<project>
 
 * `3x-ui`
 * `usque`
-* `dockcheck`
 
 Каждый `clone-release` проект должен использовать отдельный подкаталог
 `./WORKDIR/<project>`, чтобы Docker Build summary и временный build context не
@@ -194,9 +194,7 @@ workdir: .
 | `recreate_release` | удалить существующий GitHub Release перед созданием нового |
 | `release_skip` | не создавать GitHub Release |
 
-Для `dockcheck` доступны только `amd64` и `arm64`.
-
-Для `Caddy-L4` параметр `build_386` игнорируется, потому что `linux/386` не поддерживается.
+Для `Caddy-L4` и `telemt-stack` параметр `build_386` игнорируется, потому что `linux/386` не поддерживается.
 
 ---
 
@@ -204,12 +202,11 @@ workdir: .
 
 | Проект    | Default platforms          | Supported platforms                          |
 | --------- | -------------------------- | -------------------------------------------- |
-| Caddy-L4  | `linux/amd64`              | `linux/amd64`, `linux/arm64/v8`              |
-| 3x-ui     | `linux/amd64`, `linux/386` | `linux/amd64`, `linux/arm64/v8`, `linux/386` |
-| usque     | `linux/amd64`, `linux/386` | `linux/amd64`, `linux/arm64/v8`, `linux/386` |
-| dockcheck | `linux/amd64`              | `linux/amd64`, `linux/arm64/v8`              |
-| telemt-stack | `linux/amd64`           | `linux/amd64`, `linux/arm64/v8`              |
-| Tor Proxy | `linux/amd64`              | `linux/amd64`                                |
+| Caddy-L4     | `linux/amd64`              | `linux/amd64`, `linux/arm64/v8`              |
+| 3x-ui        | `linux/amd64`, `linux/386` | `linux/amd64`, `linux/arm64/v8`, `linux/386` |
+| usque        | `linux/amd64`, `linux/386` | `linux/amd64`, `linux/arm64/v8`, `linux/386` |
+| telemt-stack | `linux/amd64`              | `linux/amd64`, `linux/arm64/v8`              |
+| Tor Proxy    | `linux/amd64`              | `linux/amd64`                                |
 
 ---
 
@@ -233,8 +230,8 @@ workdir: .
 Пример:
 
 ```bash
-docker pull torotin/dockcheck:latest
-docker pull torotin/dockcheck:v0.7.8
+docker pull torotin/usque:latest
+docker pull torotin/usque:v1.4.1
 ```
 
 ---
@@ -283,8 +280,8 @@ Release body содержит:
 Пример:
 
 ```text
-dockcheck-v0.7.8-linux-amd64.tar.gz
-dockcheck-latest.tar.gz
+usque-v1.4.1-linux-amd64.tar.gz
+usque-latest.tar.gz
 ```
 
 ---
@@ -347,50 +344,20 @@ self-hosted-runner:
 ```text
 .github/
   workflows/
-    _docker-project-build.yml        # общий reusable Docker pipeline
-    daily-trigger.yml                # оркестратор
-    Caddy-L4-Docker-selfhosted.yml   # wrapper для Caddy-L4
-    3x-ui-Docker-selfhosted.yml      # wrapper для 3x-ui
-    usque-Docker-selfhosted.yml      # wrapper для usque
-    dockcheck-Docker-selfhosted.yml  # wrapper для dockcheck
-    Telemt-Stack-Docker-selfhosted.yml # wrapper для telemt-stack
-    TorProxy-Docker-selfhosted.yml   # отдельный workflow для Tor Proxy
+    _docker-project-build.yml          # общий reusable Docker pipeline
+    daily-trigger.yml                  # оркестратор
+    Caddy-L4-Docker-selfhosted.yml
+    3x-ui-Docker-selfhosted.yml
+    usque-Docker-selfhosted.yml
+    Telemt-Stack-Docker-selfhosted.yml
+    TorProxy-Docker-selfhosted.yml     # отдельный workflow для Tor Proxy
 
 bin/
-  caddy/
-    dockerfile
-    DockerEntrypoint.sh
-
-  3x-ui/
-    dockerfile
-    DockerEntrypoint.sh
-    DockerInit.sh
-
-  usque/
-    Dockerfile
-    DockerEntrypoint.sh
-    DockerInit.sh
-
-  dockcheck/
-    Dockerfile
-    entrypoint.sh
-    docker-compose.dockcheck.yml
-    .env.template
-
-  telemt-stack/
-    dockerfile
-    DockerEntrypoint.sh
-    docker-compose.telemt-stack.yml
-    telemt-config.toml
-    telemt-panel-config.toml
-
-  tor-proxy/
-    Dockerfile
-    entrypoint.sh
-    bridge-sync.sh
-    healthcheck.sh
-    docker-compose.tor-proxy.yml
-
+  caddy/          # см. bin/caddy/README.md
+  3x-ui/          # см. bin/3x-ui/README.md
+  usque/          # см. bin/usque/README.md
+  telemt-stack/   # см. bin/telemt-stack/README.md
+  tor-proxy/      # см. bin/tor-proxy/README.md
 ```
 
 ---
@@ -400,7 +367,7 @@ bin/
 Чтобы добавить новый проект на общий pipeline:
 
 1. Создать каталог в `bin/<project>/`.
-2. Добавить Dockerfile и необходимые scripts.
+2. Добавить Dockerfile, необходимые scripts и **`bin/<project>/README.md`** (контракт образа: upstream, порты, env, health, consumers).
 3. Создать новый workflow в `.github/workflows/`.
 4. Вызвать reusable workflow:
 
@@ -433,177 +400,21 @@ jobs:
 ```
 
 5. Добавить маршрут в `daily-trigger.yml`.
+6. Добавить строку в таблицу «Что собирается» выше.
 
 ---
 
 ## Особенности отдельных проектов
 
-### Caddy-L4
+Краткие отличия pipeline; полный контракт образа — в `bin/<project>/README.md`.
 
-* build context: текущий репозиторий;
-* `prepare_mode: in-repo-context`;
-* поддерживает только `linux/amd64` и `linux/arm64/v8`;
-* `linux/386` отключён.
-
-### 3x-ui
-
-* upstream клонируется по latest release tag;
-* build context: `./WORKDIR/3x-ui`;
-* используется custom Dockerfile, entrypoint и init script;
-* default platforms: `linux/amd64`, `linux/386`;
-* build выполняется с `network: host`;
-* передаются build args:
-
-```text
-ALPINE_MIRROR
-GOPROXY
-GOSUMDB
-```
-
-### usque
-
-* upstream клонируется по latest release tag;
-* build context: `./WORKDIR/usque`;
-* используется custom Dockerfile, entrypoint и init script;
-* default platforms: `linux/amd64`, `linux/386`.
-
-### dockcheck
-
-* upstream клонируется по latest release tag;
-* build context: `./WORKDIR/dockcheck`;
-* поддерживает `linux/amd64` и `linux/arm64/v8`;
-* `linux/386` принудительно отключён;
-* upstream tag передаётся в Docker build arg:
-
-```text
-DOCKCHECK_REF
-```
-
-### telemt-stack
-
-* build context: текущий репозиторий;
-* `prepare_mode: in-repo-context`;
-* публикует единый образ `torotin/telemt-stack`, объединяющий `telemt` и `telemt-panel`;
-* скачивает бинарники из GitHub Releases [`telemt/telemt`](https://github.com/telemt/telemt) и [`amirotin/telemt_panel`](https://github.com/amirotin/telemt_panel);
-* default platform: `linux/amd64`;
-* supported platforms: `linux/amd64`, `linux/arm64/v8`;
-* `linux/386` отключён.
-
-Пример автономного запуска находится в `bin/telemt-stack/docker-compose.telemt-stack.yml`.
-Рядом с ним находятся прокомментированные шаблоны конфигурации:
-
-```text
-./telemt-config.toml
-./telemt-panel-config.toml
-```
-
-Перед запуском замените placeholders API token, MTProxy secret, password hash
-и JWT secret. Compose публикует `9443` и `8080`, а control ports `9091` и
-`9090` по умолчанию доступны только через `127.0.0.1` хоста. Bind address
-control ports можно изменить через `TELEMT_API_BIND_ADDRESS` и
-`TELEMT_METRICS_BIND_ADDRESS`.
-
-Для страницы логов в telemt-panel шаблон задаёт `container_name = "telemt-stack"`
-и Compose монтирует `/var/run/docker.sock` read-only. Это позволяет панели
-читать `docker logs telemt-stack` через Docker Engine API вместо `journalctl`,
-которого нет внутри контейнера. Docker socket даёт широкие возможности
-управления Docker host, поэтому используйте этот пример только на доверенных
-хостах или удалите mount, если логи в UI не нужны.
-
-Встроенная панель запускается по умолчанию. Чтобы использовать внешнюю панель,
-задайте `TELEMT_PANEL_ENABLED=false`; контейнер продолжит запускать `telemt`,
-а mount `telemt-panel-config.toml` в таком режиме можно удалить из своей
-Compose-конфигурации.
-
-### Tor Proxy
-
-Tor Proxy использует отдельный workflow и публикует `torotin/tor-proxy` только для `linux/amd64`.
-При сборке workflow разрешает текущие stable-версии Tor из `deb.torproject.org`,
-Lyrebird из Tor Project GitLab, GOST и `dnsproxy` из GitHub Releases. Эти
-версии явно передаются Dockerfile; его pinned defaults предназначены только
-для ручной локальной сборки. Образ публикуется с `latest` и составным immutable
-tag вида:
-
-```text
-tor-<tor-version>_lyrebird-<lyrebird-version>_gost-<gost-version>_dnsproxy-<dnsproxy-version>
-```
-
-`dnsproxy` собирается из exact Git tag разрешённой stable-версии: upstream
-release не предоставляет отдельный checksum asset для Linux archive.
-
-Контейнер предоставляет:
-
-| Endpoint | Назначение |
-| --- | --- |
-| `tor-proxy:53` TCP/UDP | DNS через Tor внутри Docker network |
-| `tor-proxy:1080` | SOCKS5 proxy |
-| `tor-proxy:8080` | HTTP proxy |
-
-Пример запуска находится в `bin/tor-proxy/docker-compose.tor-proxy.yml`.
-Host-порты по умолчанию публикуются только на `127.0.0.1`, тогда как другие
-контейнеры общей сети используют hostname `tor-proxy`:
-
-```bash
-curl --fail --silent --socks5-hostname tor-proxy:1080 \
-  https://check.torproject.org/api/ip | grep '"IsTor":true'
-```
-
-Основные переменные окружения:
-
-| Переменная | Default | Назначение |
+| Проект | Prepare | Pipeline notes |
 | --- | --- | --- |
-| `TOR_BRIDGES_ENABLED` | `true` | Включить мосты при запуске |
-| `TOR_BRIDGE_TRANSPORT` | `auto` | `auto`, `obfs4`, `webtunnel` или `snowflake` |
-| `TOR_BRIDGES_MAX_PER_TRANSPORT` | `2` | Максимум bridge lines одного transport; ограничивает CPU при bootstrap |
-| `TOR_MAX_CLIENT_CIRCUITS_PENDING` | `4` | Ограничение одновременных ожидающих client circuits Tor |
-| `TOR_IPV6_AVAILABLE` | `auto` | Разрешить IPv6 bridge endpoints только при рабочем outbound IPv6 VPS |
-| `TOR_BRIDGES_OBFS4_URL` | Tor-Bridges-Collector raw feed | Источник `obfs4` |
-| `TOR_BRIDGES_OBFS4_IPV6_URL` | Tor-Bridges-Collector raw feed | Источник IPv6 `obfs4`, используется только при исходящем IPv6 |
-| `TOR_BRIDGES_WEBTUNNEL_URL` | Tor-Bridges-Collector raw feed | Источник `webtunnel` |
-| `TOR_BRIDGES_SNOWFLAKE_URL` | official Tor Browser `pt_config.json` | Источник `snowflake` |
-| `TOR_BOOTSTRAP_DNS_ENABLED` | `true` | Использовать внутренний encrypted DNS до/во время bootstrap |
-| `TOR_BOOTSTRAP_DNS_UPSTREAMS` | AdGuard DoH, DoT, DoQ | Upstreams внутреннего `dnsproxy`; принимает также DNS stamps |
-| `TOR_BOOTSTRAP_DNS_BOOTSTRAPS` | `94.140.14.14:53 94.140.15.15:53` | IPv4 bootstrap resolvers для encrypted upstream hostnames |
-| `TOR_BOOTSTRAP_DNS_PLAIN_FALLBACK` | `true` | Разрешить исходный container DNS как bootstrap fallback |
-| `TOR_BOOTSTRAP_DNS_FALLBACKS` | пусто | Явная замена plaintext bootstrap fallback resolvers |
-| `TOR_UPDATE_ON_START` | `true` | Попытаться обновить Tor из official APT repo перед запуском |
-| `TOR_PROXY_LOGIN`, `TOR_PROXY_PASSWORD` | пусто | Опциональная auth для SOCKS5/HTTP; задаются только вместе |
-| `TOR_PROXY_CPUS`, `TOR_PROXY_MEMORY_LIMIT` | `0.75`, `512m` | Compose resource limits для малого VPS |
-
-Fetched bridges валидируются, дедуплицируются и сохраняются в
-`/var/lib/tor-proxy`; при ошибке feed используется последний cache. В образ
-включены official Tor Browser defaults для `obfs4` и `snowflake`; у
-`webtunnel` bundled fallback нет, поэтому explicit `webtunnel` без рабочего
-feed/cache завершает запуск ошибкой. Публичные feed
-`scriptzteam/Tor-Bridges-Collector` являются недоверенным внешним источником и
-могут быть заменены URL-переменными.
-
-Для VPS с одним CPU `auto` сохраняет все три transport, но выбирает не более
-двух мостов каждого типа и задаёт `MaxClientCircuitsPending 4`; это предотвращает
-массовые параллельные попытки bootstrap. Внутренний `dnsproxy` обслуживает
-только загрузку feeds и доменные соединения Lyrebird через DoH/DoT/DoQ;
-upstreams опрашиваются параллельно, чтобы заблокированный DoT/DoQ не задерживал
-доступный DoH.
-Опубликованный порт `53` по-прежнему пересылает DNS исключительно через Tor.
-При отказе encrypted upstreams plaintext fallback применяется только к этому
-внутреннему bootstrap resolution.
-
-Пример `.env` для малого VPS:
-
-```dotenv
-TOR_PROXY_CPUS=0.75
-TOR_PROXY_MEMORY_LIMIT=512m
-TOR_BRIDGES_MAX_PER_TRANSPORT=2
-TOR_MAX_CLIENT_CIRCUITS_PENDING=4
-TOR_IPV6_AVAILABLE=false
-TOR_BOOTSTRAP_DNS_UPSTREAMS=https://dns.adguard-dns.com/dns-query tls://dns.adguard-dns.com quic://dns.adguard-dns.com
-TOR_BOOTSTRAP_DNS_BOOTSTRAPS=94.140.14.14:53 94.140.15.15:53
-TOR_BOOTSTRAP_DNS_PLAIN_FALLBACK=true
-```
-
-Доступ к IPv6-only назначениям включен на SOCKS listener и зависит от
-выбранного Tor exit с IPv6 и политики целевого ресурса. IPv6 bridge endpoints
-не дают IPv6-over-IPv4 и фильтруются, если у VPS нет рабочего outbound IPv6.
+| [Caddy-L4](bin/caddy/README.md) | `in-repo-context` | amd64/arm64; `build_386` ignored |
+| [3x-ui](bin/3x-ui/README.md) | `clone-release` → `WORKDIR/3x-ui` | `network: host`; build args `ALPINE_MIRROR`, `GOPROXY`, `GOSUMDB` |
+| [usque](bin/usque/README.md) | `clone-release` → `WORKDIR/usque` | custom Dockerfile + entrypoint |
+| [telemt-stack](bin/telemt-stack/README.md) | `in-repo-context` | combined telemt + telemt-panel binaries from GitHub Releases |
+| [Tor Proxy](bin/tor-proxy/README.md) | dedicated workflow | amd64 only; composite immutable tag from Tor/lyrebird/gost/dnsproxy versions |
 
 ---
 
@@ -733,22 +544,21 @@ release_skip
 | `.github/workflows/Caddy-L4-Docker-selfhosted.yml` | `Caddy-L4-Docker-selfhosted.yml` |
 | `bin/usque/**` | `usque-Docker-selfhosted.yml` |
 | `.github/workflows/usque-Docker-selfhosted.yml` | `usque-Docker-selfhosted.yml` |
-| `bin/dockcheck/**` | `dockcheck-Docker-selfhosted.yml` |
-| `.github/workflows/dockcheck-Docker-selfhosted.yml` | `dockcheck-Docker-selfhosted.yml` |
 | `bin/telemt-stack/**` | `Telemt-Stack-Docker-selfhosted.yml` |
 | `.github/workflows/Telemt-Stack-Docker-selfhosted.yml` | `Telemt-Stack-Docker-selfhosted.yml` |
 | `bin/tor-proxy/**` | `TorProxy-Docker-selfhosted.yml` |
 | `tests/tor-proxy/**` | `TorProxy-Docker-selfhosted.yml` |
 | `.github/workflows/TorProxy-Docker-selfhosted.yml` | `TorProxy-Docker-selfhosted.yml` |
-| `.github/workflows/_docker-project-build.yml` | все проекты на общем reusable workflow: `3x-ui`, `Caddy-L4`, `usque`, `dockcheck`, `telemt-stack` |
+| `.github/workflows/_docker-project-build.yml` | все проекты на общем reusable workflow: `3x-ui`, `Caddy-L4`, `usque`, `telemt-stack` |
 
 Примеры:
 
 * изменение только `bin/caddy/dockerfile` запускает только Caddy-L4;
 * изменение только `bin/3x-ui/DockerInit.sh` запускает только 3x-ui;
-* изменение `_docker-project-build.yml` запускает `3x-ui`, `Caddy-L4`, `usque`, `dockcheck` и `telemt-stack`;
+* изменение `_docker-project-build.yml` запускает `3x-ui`, `Caddy-L4`, `usque` и `telemt-stack`;
 * изменение `daily-trigger.yml` само по себе не запускает проектные сборки, потому что этот файл не входит в project prefixes;
-* изменение `README.md` не запускает `daily-trigger.yml`, потому что README не входит в push `paths`.
+* изменение корневого `README.md` не запускает `daily-trigger.yml` (не в push `paths`);
+* изменение только `bin/<project>/README.md` **запускает** соответствующий project workflow, потому что путь входит в prefix `bin/<project>/`.
 
 Если ни один маршрут не совпал — workflow не запускается.
 

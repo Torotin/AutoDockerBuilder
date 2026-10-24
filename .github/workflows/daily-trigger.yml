@@ -55,12 +55,6 @@ jobs:
                 recreateReleaseOnPush: true,
               },
               {
-                workflow: 'dockcheck-Docker-selfhosted.yml',
-                prefixes: ['bin/dockcheck/', '.github/workflows/dockcheck-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
-                inputs: {},
-                recreateReleaseOnPush: true,
-              },
-              {
                 workflow: 'Telemt-Stack-Docker-selfhosted.yml',
                 prefixes: ['bin/telemt-stack/', '.github/workflows/Telemt-Stack-Docker-selfhosted.yml', '.github/workflows/_docker-project-build.yml'],
                 inputs: {},
