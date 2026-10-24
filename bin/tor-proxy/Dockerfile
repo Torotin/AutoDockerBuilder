@@ -2,6 +2,7 @@ ARG DEBIAN_VERSION=13-slim
 ARG LYREBIRD_VERSION=0.8.1
 ARG GOST_VERSION=3.2.6
 ARG DNSPROXY_VERSION=0.81.4
+ARG PT_CONFIG_REF=274119c591d405598abf22c3aa56e5519c9b4fdb
 
 FROM golang:1.24-bookworm AS lyrebird-builder
 ARG LYREBIRD_VERSION
@@ -12,16 +13,6 @@ RUN git clone --depth 1 --branch "lyrebird-${LYREBIRD_VERSION}" \
         https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird.git /src/lyrebird; \
     make -C /src/lyrebird build; \
     install -m 0755 /src/lyrebird/lyrebird /usr/local/bin/lyrebird
-
-FROM golang:1.26-bookworm AS dnsproxy-builder
-ARG DNSPROXY_VERSION
-RUN apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates git make; \
-    rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 --branch "v${DNSPROXY_VERSION}" \
-        https://github.com/AdguardTeam/dnsproxy.git /src/dnsproxy; \
-    make -C /src/dnsproxy build VERSION="${DNSPROXY_VERSION}"; \
-    install -m 0755 /src/dnsproxy/dnsproxy /usr/local/bin/dnsproxy
 
 FROM debian:${DEBIAN_VERSION} AS gost-download
 ARG GOST_VERSION
@@ -38,11 +29,29 @@ RUN set -eux; \
     tar -xzf "${asset}"; \
     install -m 0755 gost /usr/local/bin/gost
 
+FROM debian:${DEBIAN_VERSION} AS dnsproxy-download
+ARG DNSPROXY_VERSION
+RUN apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl jq tar; \
+    rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    asset="dnsproxy-linux-amd64-v${DNSPROXY_VERSION}.tar.gz"; \
+    api_url="https://api.github.com/repos/AdguardTeam/dnsproxy/releases/tags/v${DNSPROXY_VERSION}"; \
+    base_url="https://github.com/AdguardTeam/dnsproxy/releases/download/v${DNSPROXY_VERSION}"; \
+    expected="$(curl -fsSL "${api_url}" | jq -r --arg name "${asset}" \
+        '.assets[] | select(.name == $name) | .digest | sub("^sha256:"; "")')"; \
+    test -n "${expected}" && test "${expected}" != "null"; \
+    curl -fL --retry 5 "${base_url}/${asset}" -o "/tmp/${asset}"; \
+    echo "${expected}  /tmp/${asset}" | sha256sum -c -; \
+    tar -xzf "/tmp/${asset}" -C /tmp; \
+    install -m 0755 /tmp/dnsproxy /usr/local/bin/dnsproxy
+
 FROM debian:${DEBIAN_VERSION}
 ARG TOR_VERSION=0.4.9.8-1~d13.trixie+1
 ARG LYREBIRD_VERSION
 ARG GOST_VERSION
 ARG DNSPROXY_VERSION
+ARG PT_CONFIG_REF
 
 LABEL org.opencontainers.image.title="Tor Proxy"
 LABEL org.opencontainers.image.description="Tor DNS, SOCKS5 and HTTP proxy with refreshed bridge feeds"
@@ -65,10 +74,14 @@ RUN set -eux; \
         > /etc/apt/sources.list.d/tor-project.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends "tor=${TOR_VERSION}"; \
-    rm -rf /var/lib/apt/lists/*
+    apt-get purge -y gnupg; \
+    apt-get autoremove -y --purge; \
+    rm -rf /var/lib/apt/lists/*; \
+    test -f /usr/share/keyrings/deb.torproject.org-keyring.gpg; \
+    test -f /etc/apt/sources.list.d/tor-project.list
 
 COPY --from=lyrebird-builder /usr/local/bin/lyrebird /usr/local/bin/lyrebird
-COPY --from=dnsproxy-builder /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
+COPY --from=dnsproxy-download /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
 COPY --from=gost-download /usr/local/bin/gost /usr/local/bin/gost
 COPY bridge-sync.sh /usr/local/bin/tor-proxy-bridge-sync
 COPY entrypoint.sh /usr/local/bin/tor-proxy-entrypoint
@@ -80,7 +93,7 @@ RUN set -eux; \
         /usr/local/bin/tor-proxy-healthcheck; \
     mkdir -p /usr/local/share/tor-proxy /var/lib/tor-proxy /etc/tor; \
     curl -fsSL \
-        https://gitlab.torproject.org/tpo/applications/tor-browser-build/-/raw/main/projects/tor-expert-bundle/pt_config.json \
+        "https://gitlab.torproject.org/tpo/applications/tor-browser-build/-/raw/${PT_CONFIG_REF}/projects/tor-expert-bundle/pt_config.json" \
         -o /usr/local/share/tor-proxy/pt_config.json; \
     jq -e '(.bridges.obfs4 | length > 0) and (.bridges.snowflake | length > 0)' \
         /usr/local/share/tor-proxy/pt_config.json >/dev/null; \
