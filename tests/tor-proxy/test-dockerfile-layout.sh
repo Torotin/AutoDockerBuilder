@@ -13,28 +13,32 @@ fail() {
 test -f "${DOCKERFILE}" || fail "missing ${DOCKERFILE}"
 test -f "${WORKFLOW}" || fail "missing ${WORKFLOW}"
 
-grep -qE '^FROM .+ AS dnsproxy-download$' "${DOCKERFILE}" ||
+# Strip CR so anchored greps work under core.autocrlf on Windows checkouts.
+dockerfile="$(tr -d '\r' < "${DOCKERFILE}")"
+workflow="$(tr -d '\r' < "${WORKFLOW}")"
+
+grep -qE '^FROM .+ AS dnsproxy-download$' <<<"${dockerfile}" ||
     fail "Dockerfile missing stage AS dnsproxy-download"
-if grep -qE '^FROM .+ AS dnsproxy-builder$' "${DOCKERFILE}"; then
+if grep -qE '^FROM .+ AS dnsproxy-builder$' <<<"${dockerfile}"; then
     fail "Dockerfile still has dnsproxy-builder stage"
 fi
 
-grep -qE '^ARG PT_CONFIG_REF=' "${DOCKERFILE}" ||
+grep -qE '^ARG PT_CONFIG_REF=' <<<"${dockerfile}" ||
     fail "Dockerfile missing ARG PT_CONFIG_REF default"
-grep -q 'raw/\${PT_CONFIG_REF}/projects/tor-expert-bundle/pt_config.json' "${DOCKERFILE}" ||
+grep -q 'raw/\${PT_CONFIG_REF}/projects/tor-expert-bundle/pt_config.json' <<<"${dockerfile}" ||
     fail "Dockerfile does not fetch pt_config via \${PT_CONFIG_REF}"
-if grep -q 'raw/main/projects/tor-expert-bundle/pt_config.json' "${DOCKERFILE}"; then
+if grep -q 'raw/main/projects/tor-expert-bundle/pt_config.json' <<<"${dockerfile}"; then
     fail "Dockerfile still fetches pt_config from raw/main"
 fi
 
-grep -q 'PT_CONFIG_REF=' "${WORKFLOW}" ||
+grep -q 'PT_CONFIG_REF=' <<<"${workflow}" ||
     fail "workflow does not pass PT_CONFIG_REF build-arg"
-grep -q 'pt_config_ref' "${WORKFLOW}" ||
+grep -q 'pt_config_ref' <<<"${workflow}" ||
     fail "workflow missing pt_config_ref output/resolution"
 
-grep -q 'autoremove' "${DOCKERFILE}" ||
+grep -q 'autoremove' <<<"${dockerfile}" ||
     fail "Dockerfile missing apt autoremove purge after Tor install"
-grep -q 'gnupg' "${DOCKERFILE}" ||
+grep -q 'gnupg' <<<"${dockerfile}" ||
     fail "Dockerfile should still mention gnupg for install-then-purge"
 
 printf 'OK: tor-proxy Dockerfile/workflow layout\n'
