@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+DOCKERFILE="${ROOT}/bin/tor-proxy/Dockerfile"
+WORKFLOW="${ROOT}/.github/workflows/TorProxy-Docker-selfhosted.yml"
+
+fail() {
+    printf 'FAIL: %s\n' "$*" >&2
+    exit 1
+}
+
+test -f "${DOCKERFILE}" || fail "missing ${DOCKERFILE}"
+test -f "${WORKFLOW}" || fail "missing ${WORKFLOW}"
+
+grep -qE '^FROM .+ AS dnsproxy-download$' "${DOCKERFILE}" ||
+    fail "Dockerfile missing stage AS dnsproxy-download"
+if grep -qE '^FROM .+ AS dnsproxy-builder$' "${DOCKERFILE}"; then
+    fail "Dockerfile still has dnsproxy-builder stage"
+fi
+
+grep -qE '^ARG PT_CONFIG_REF=' "${DOCKERFILE}" ||
+    fail "Dockerfile missing ARG PT_CONFIG_REF default"
+grep -q 'raw/\${PT_CONFIG_REF}/projects/tor-expert-bundle/pt_config.json' "${DOCKERFILE}" ||
+    fail "Dockerfile does not fetch pt_config via \${PT_CONFIG_REF}"
+if grep -q 'raw/main/projects/tor-expert-bundle/pt_config.json' "${DOCKERFILE}"; then
+    fail "Dockerfile still fetches pt_config from raw/main"
+fi
+
+grep -q 'PT_CONFIG_REF=' "${WORKFLOW}" ||
+    fail "workflow does not pass PT_CONFIG_REF build-arg"
+grep -q 'pt_config_ref' "${WORKFLOW}" ||
+    fail "workflow missing pt_config_ref output/resolution"
+
+grep -q 'autoremove' "${DOCKERFILE}" ||
+    fail "Dockerfile missing apt autoremove purge after Tor install"
+grep -q 'gnupg' "${DOCKERFILE}" ||
+    fail "Dockerfile should still mention gnupg for install-then-purge"
+
+printf 'OK: tor-proxy Dockerfile/workflow layout\n'
