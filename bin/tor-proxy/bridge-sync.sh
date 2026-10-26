@@ -55,16 +55,32 @@ normalize_lines() {
 filter_network_usable_lines() {
     local input="$1"
     local output="$2"
+    local allow_ipv6="${allow_ipv6_bridges}"
 
-    if [ "${allow_ipv6_bridges}" = "true" ]; then
-        cp "${input}" "${output}"
-        return 0
-    fi
-
-    awk '
+    awk -v allow_ipv6="${allow_ipv6}" '
+        function is_private_ipv4(ip,    n, a, a1, a2) {
+            n = split(ip, a, ".")
+            if (n != 4) return 0
+            a1 = a[1] + 0
+            a2 = a[2] + 0
+            if (a1 == 0) return 1
+            if (a1 == 10) return 1
+            if (a1 == 127) return 1
+            if (a1 == 169 && a2 == 254) return 1
+            if (a1 == 172 && a2 >= 16 && a2 <= 31) return 1
+            if (a1 == 192 && a2 == 168) return 1
+            return 0
+        }
         {
             endpoint = ($1 == "Bridge" ? $3 : $2)
-            if (endpoint !~ /^\[/) print
+            if (endpoint ~ /^\[/) {
+                if (allow_ipv6 == "true") print
+                next
+            }
+            host = endpoint
+            sub(/:.*/, "", host)
+            if (host ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && is_private_ipv4(host)) next
+            print
         }
     ' "${input}" > "${output}"
 }

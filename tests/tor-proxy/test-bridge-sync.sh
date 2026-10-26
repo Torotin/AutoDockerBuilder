@@ -194,10 +194,71 @@ test_native_ipv6_allows_ipv6_bridge_endpoints() {
     assert_contains "$tmp/out.conf" "Bridge obfs4 [2001:db8::10]:443 DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD cert=ipv6 iat-mode=0"
 }
 
+test_drops_private_reserved_ipv4_endpoints() {
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' RETURN
+    make_fixtures "$tmp"
+
+    cat > "${tmp}/obfs4-private.txt" <<'EOF'
+obfs4 10.1.2.3:443 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA cert=priv10 iat-mode=0
+obfs4 192.168.1.5:443 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB cert=priv192 iat-mode=0
+obfs4 172.16.9.9:443 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC cert=priv172 iat-mode=0
+obfs4 127.0.0.1:443 DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD cert=loopback iat-mode=0
+obfs4 169.254.1.1:443 EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE cert=linklocal iat-mode=0
+obfs4 0.0.0.1:443 FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF cert=thisnet iat-mode=0
+obfs4 198.51.100.10:443 1111111111111111111111111111111111111111 cert=public iat-mode=0
+EOF
+
+    run_sync "$tmp/cache" "$tmp/out.conf" "$tmp/defaults.json" obfs4 false 32 \
+        "file://${tmp}/obfs4-private.txt" "file://${tmp}/missing-ipv6" \
+        "file://${tmp}/missing-web" "file://${tmp}/missing-snow"
+
+    assert_contains "$tmp/out.conf" "Bridge obfs4 198.51.100.10:443 1111111111111111111111111111111111111111 cert=public iat-mode=0"
+    assert_not_contains "$tmp/out.conf" "Bridge obfs4 10.1.2.3:443 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA cert=priv10 iat-mode=0"
+    assert_not_contains "$tmp/out.conf" "Bridge obfs4 192.168.1.5:443 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB cert=priv192 iat-mode=0"
+    assert_not_contains "$tmp/out.conf" "Bridge obfs4 172.16.9.9:443 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC cert=priv172 iat-mode=0"
+    assert_not_contains "$tmp/out.conf" "Bridge obfs4 127.0.0.1:443 DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD cert=loopback iat-mode=0"
+    assert_not_contains "$tmp/out.conf" "Bridge obfs4 169.254.1.1:443 EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE cert=linklocal iat-mode=0"
+    assert_not_contains "$tmp/out.conf" "Bridge obfs4 0.0.0.1:443 FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF cert=thisnet iat-mode=0"
+    assert_line_count "$tmp/out.conf" 1
+}
+
+test_keeps_snowflake_test_net_placeholders() {
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' RETURN
+    make_fixtures "$tmp"
+
+    run_sync "$tmp/cache" "$tmp/out.conf" "$tmp/defaults.json" snowflake false 32 \
+        "file://${tmp}/missing-obfs4" "file://${tmp}/missing-ipv6" \
+        "file://${tmp}/missing-web" "file://${tmp}/snowflake.json"
+
+    assert_contains "$tmp/out.conf" "Bridge snowflake 192.0.2.3:80 FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF url=https://snowflake.example fronts=front.example"
+}
+
+test_all_private_obfs4_falls_back_to_builtin() {
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' RETURN
+    make_fixtures "$tmp"
+
+    cat > "${tmp}/obfs4-only-private.txt" <<'EOF'
+obfs4 10.0.0.8:443 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA cert=onlypriv iat-mode=0
+EOF
+
+    run_sync "$tmp/cache" "$tmp/out.conf" "$tmp/defaults.json" obfs4 false 32 \
+        "file://${tmp}/obfs4-only-private.txt" "file://${tmp}/missing-ipv6" \
+        "file://${tmp}/missing-web" "file://${tmp}/missing-snow"
+
+    assert_contains "$tmp/out.conf" "Bridge obfs4 203.0.113.10:443 1111111111111111111111111111111111111111 cert=builtin iat-mode=0"
+    assert_not_contains "$tmp/out.conf" "Bridge obfs4 10.0.0.8:443 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA cert=onlypriv iat-mode=0"
+}
+
 test_fetch_filter_deduplicate_and_exclude_ipv6
 test_cache_then_bundled_fallback
 test_explicit_webtunnel_requires_feed_or_cache
 test_limit_selected_bridge_count
 test_default_limits_each_transport_to_two_bridges
 test_native_ipv6_allows_ipv6_bridge_endpoints
+test_drops_private_reserved_ipv4_endpoints
+test_keeps_snowflake_test_net_placeholders
+test_all_private_obfs4_falls_back_to_builtin
 printf 'PASS: bridge-sync behavior\n'
