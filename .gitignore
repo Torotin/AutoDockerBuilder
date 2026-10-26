@@ -1,7 +1,4 @@
 ***/.project_context
-/.project_context*
-
-# Local agent scratch and design docs — never commit
 .superpowers/
 docs/
 
@@ -11,6 +8,7 @@ docs/
 /ideas*
 sync-lampac.sh
 sync-lampac-docker.sh
+/.project_context*
 
 # ==== Swap / temp / backups ====
 *~
@@ -34,7 +32,9 @@ desktop.ini
 .idea/
 *.iml
 .cursor/
-
+# Local agent scratch and design docs — never commit
+.superpowers/
+docs/
 # ==== Python / test leftovers ====
 __pycache__/
 *.py[cod]
