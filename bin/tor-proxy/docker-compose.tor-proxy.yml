@@ -35,10 +35,10 @@ services:
       - "127.0.0.1:${TOR_HTTP_PORT:-8080}:8080/tcp"
     healthcheck:
       test: ["CMD", "/usr/local/bin/tor-proxy-healthcheck"]
-      interval: 1m
+      interval: 30s
       timeout: 20s
-      retries: 3
-      start_period: 1m
+      retries: 10
+      start_period: 3m
 
 volumes:
   tor-proxy-data:

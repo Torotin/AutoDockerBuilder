@@ -46,4 +46,17 @@ grep -q 'autoremove' <<<"${dockerfile}" ||
 grep -q 'gnupg' <<<"${dockerfile}" ||
     fail "Dockerfile should still mention gnupg for install-then-purge"
 
+grep -qE '^HEALTHCHECK --interval=30s --timeout=20s --start-period=3m --retries=10 \\$' <<<"${dockerfile}" ||
+    fail "Dockerfile HEALTHCHECK timings must be interval=30s timeout=20s start-period=3m retries=10"
+
+compose="$(tr -d '\r' < "${ROOT}/bin/tor-proxy/docker-compose.tor-proxy.yml")"
+grep -qE '^[[:space:]]*interval: 30s$' <<<"${compose}" ||
+    fail "compose healthcheck interval must be 30s"
+grep -qE '^[[:space:]]*timeout: 20s$' <<<"${compose}" ||
+    fail "compose healthcheck timeout must be 20s"
+grep -qE '^[[:space:]]*retries: 10$' <<<"${compose}" ||
+    fail "compose healthcheck retries must be 10"
+grep -qE '^[[:space:]]*start_period: 3m$' <<<"${compose}" ||
+    fail "compose healthcheck start_period must be 3m"
+
 printf 'OK: tor-proxy Dockerfile/workflow layout\n'

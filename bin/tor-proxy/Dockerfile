@@ -106,7 +106,7 @@ VOLUME ["/var/lib/tor", "/var/lib/tor-proxy"]
 
 EXPOSE 53/tcp 53/udp 1080/tcp 8080/tcp
 
-HEALTHCHECK --interval=1m --timeout=20s --start-period=1m --retries=3 \
+HEALTHCHECK --interval=30s --timeout=20s --start-period=3m --retries=10 \
     CMD ["/usr/local/bin/tor-proxy-healthcheck"]
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tor-proxy-entrypoint"]
