@@ -1,3 +1,45 @@
 ***/.project_context
+/.project_context*
+
+# Local agent scratch and design docs — never commit
 .superpowers/
 docs/
+
+# ==== Local scratch / helpers ====
+/tmp/
+/New/
+/ideas*
+sync-lampac.sh
+sync-lampac-docker.sh
+
+# ==== Swap / temp / backups ====
+*~
+*.swp
+*.swo
+*.tmp
+*.bak
+*.bak.*
+*.bakcheck
+*.orig
+*.pcap
+
+# ==== Logs / agent debug ====
+*.log
+
+# ==== OS / IDE ====
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.iml
+.cursor/
+
+# ==== Python / test leftovers ====
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# ==== Installer local state ====
+script/install-state/
