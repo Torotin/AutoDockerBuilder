@@ -52,6 +52,8 @@ bridges → lyrebird (obfs4, webtunnel, snowflake)
 Volumes: `/var/lib/tor`, `/var/lib/tor-proxy` (bridge cache under `/var/lib/tor-proxy/bridges`).
 
 Healthcheck: SOCKS5 to `https://check.torproject.org/api/ip`, expects `IsTor == true`.
+Image/compose defaults: `start_period=3m`, `interval=30s`, `timeout=20s`, `retries=10`
+(failures during `start_period` do not count toward `retries`).
 
 ## Endpoints
 
@@ -98,6 +100,10 @@ curl --fail --silent --socks5-hostname tor-proxy:1080 \
 - Image ships bundled Tor Browser defaults for `obfs4` and `snowflake` (`pt_config.json`). `webtunnel` has **no** bundled fallback — explicit `webtunnel` without feed/cache fails start.
 - Public `scriptzteam/Tor-Bridges-Collector` feeds are untrusted third-party sources; override via URL env vars if needed.
 - `auto` keeps all three transports but samples at most `TOR_BRIDGES_MAX_PER_TRANSPORT` lines each.
+- After validation, IPv4 bridge endpoints in private/reserved ranges are dropped:
+  `0.0.0.0/8`, `10.0.0.0/8`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.168.0.0/16`.
+  Snowflake `192.0.2.0/24` placeholders are **kept**.
+- IPv6 bridge endpoints remain gated by outbound IPv6 availability (`TOR_IPV6_AVAILABLE`).
 
 Published `:53` always forwards DNS **through Tor**. Encrypted dnsproxy is only for bootstrap/feed/PT name resolution; plaintext fallback applies only to that bootstrap path.
 
@@ -124,4 +130,8 @@ docker compose -f bin/tor-proxy/docker-compose.tor-proxy.yml up -d
 
 ## Consumers
 
-Primary consumer: `Torotin/3x-ui_pro_Docker` (`docker-proxy/compose.d/11-tor-proxy.yml`). That stack typically leaves host `ports:` commented and reaches `tor-proxy` over the Docker network; env values there may differ from this sample (e.g. higher `TOR_BRIDGES_MAX_PER_TRANSPORT`).
+Primary consumer: `Torotin/3x-ui_pro_Docker` (`docker-proxy/compose.d/11-tor-proxy.yml`).
+That stack typically leaves host `ports:` commented and reaches `tor-proxy` over the Docker network.
+If that stack raises `TOR_BRIDGES_MAX_PER_TRANSPORT` above this sample default (`2`), either lower MAX
+toward `2` or lengthen health `start_period` / `retries` to match slower bridge selection under
+`MaxClientCircuitsPending=4`. This repo does not change that consumer's compose files.
