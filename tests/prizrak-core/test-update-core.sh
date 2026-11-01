@@ -63,11 +63,15 @@ case "\${url}" in
     [ -n "\${out}" ] || exit 2
     printf 'new' | gzip -c >"\${out}"
     ;;
-  */geoip.dat|*/geosite.dat|*/geoip.metadb)
-    [ -n "\${out}" ] || exit 2
-    printf 'new-%s' "\${url##*/}" >"\${out}"
-    ;;
   *)
+    geo_base="\${PRIZRAK_GEO_BASE_URL:-https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest}"
+    case "\${url}" in
+      "\${geo_base}/geoip.dat"|"\${geo_base}/geosite.dat"|"\${geo_base}/geoip.metadb")
+        [ -n "\${out}" ] || exit 2
+        printf 'new-%s' "\${url##*/}" >"\${out}"
+        exit 0
+        ;;
+    esac
     printf 'unexpected URL: %s\n' "\${url}" >&2
     exit 3
     ;;

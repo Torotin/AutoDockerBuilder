@@ -10,6 +10,7 @@ PRIZRAK_BACKUP_DIR="${PRIZRAK_BACKUP_DIR:-/temp/prizrak-backup}"
 PRIZRAK_LOCK_FILE="${PRIZRAK_LOCK_FILE:-/temp/prizrak-update.lock}"
 PRIZRAK_CONFIG_DIR="${PRIZRAK_CONFIG_DIR:-/root/.config/mihomo}"
 PRIZRAK_REPO="${PRIZRAK_REPO:-legiz-ru/Prizrak-Core}"
+PRIZRAK_GEO_BASE_URL="${PRIZRAK_GEO_BASE_URL:-https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest}"
 PRIZRAK_CORE_VARIANT="${PRIZRAK_CORE_VARIANT:-v3}"
 PRIZRAK_CURL="${PRIZRAK_CURL:-curl}"
 PRIZRAK_HEALTH_CMD="${PRIZRAK_HEALTH_CMD:-true}"
@@ -75,7 +76,7 @@ stage_and_verify() {
   chmod +x "${STAGED_BIN}"
 
   for geo_asset in geoip.dat geosite.dat geoip.metadb; do
-    if ! download_file "${release_url}/${geo_asset}" "${STAGED_GEO_DIR}/${geo_asset}"; then
+    if ! download_file "${PRIZRAK_GEO_BASE_URL}/${geo_asset}" "${STAGED_GEO_DIR}/${geo_asset}"; then
       rm -rf "${PRIZRAK_STAGE_DIR}"
       return 1
     fi
