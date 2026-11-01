@@ -1,0 +1,41 @@
+FROM alpine:3.21
+
+ARG PRIZRAK_REPO=legiz-ru/Prizrak-Core
+ARG PRIZRAK_VERSION
+ARG PRIZRAK_CORE_VARIANT=v3
+ARG TARGETARCH
+
+LABEL org.opencontainers.image.title="Prizrak-Core"
+LABEL org.opencontainers.image.description="Prizrak-Core proxy with baked release binary, geo data, and in-container self-update"
+LABEL org.opencontainers.image.source="https://github.com/legiz-ru/Prizrak-Core"
+
+RUN apk add --no-cache \
+    ca-certificates \
+    curl \
+    gzip \
+    iptables \
+    tzdata
+
+COPY bin/prizrak-core/asset-name.sh /opt/prizrak/asset-name.sh
+COPY DockerEntrypoint.sh /opt/prizrak/DockerEntrypoint.sh
+COPY update-core.sh /opt/prizrak/update-core.sh
+
+RUN chmod +x /opt/prizrak/DockerEntrypoint.sh /opt/prizrak/update-core.sh
+
+RUN set -eux; \
+    . /opt/prizrak/asset-name.sh; \
+    test -n "${PRIZRAK_VERSION}"; \
+    asset="$(prizrak_asset_name linux "${TARGETARCH}" "${PRIZRAK_CORE_VARIANT}" "${PRIZRAK_VERSION}")"; \
+    release_url="https://github.com/${PRIZRAK_REPO}/releases/download/${PRIZRAK_VERSION}"; \
+    mkdir -p /opt/prizrak /root/.config/mihomo; \
+    curl -fsSL "${release_url}/${asset}" | gzip -dc > /opt/prizrak/prizrak-core; \
+    chmod +x /opt/prizrak/prizrak-core; \
+    printf '%s\n' "${PRIZRAK_VERSION}" > /opt/prizrak/installed-release; \
+    geo_base="https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download"; \
+    for geo_asset in geoip.dat geosite.dat geoip.metadb; do \
+        curl -fsSL -o "/root/.config/mihomo/${geo_asset}" "${geo_base}/${geo_asset}"; \
+    done
+
+VOLUME ["/root/.config/mihomo/"]
+
+ENTRYPOINT ["/opt/prizrak/DockerEntrypoint.sh"]

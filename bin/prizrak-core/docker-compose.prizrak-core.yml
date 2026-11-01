@@ -1,0 +1,22 @@
+services:
+  prizrak-core:
+    image: ${PRIZRAK_CORE_IMAGE:-torotin/prizrak-core:latest}
+    container_name: prizrak-core
+    restart: unless-stopped
+    init: true
+    environment:
+      TZ: ${TZ:-UTC}
+      PRIZRAK_REPO: ${PRIZRAK_REPO:-legiz-ru/Prizrak-Core}
+      PRIZRAK_CORE_VARIANT: ${PRIZRAK_CORE_VARIANT:-v3}
+      PRIZRAK_UPDATE_INTERVAL: ${PRIZRAK_UPDATE_INTERVAL:-1h}
+      PRIZRAK_CONTROLLER_URL: ${PRIZRAK_CONTROLLER_URL:-}
+      PRIZRAK_SECRET: ${PRIZRAK_SECRET:-}
+    volumes:
+      # Mount config.yaml and optional overrides; geo baked into the image is copied here at build time.
+      - type: bind
+        source: ${PRIZRAK_CONFIG_HOST_DIR:-./prizrak-config}
+        target: /root/.config/mihomo
+    # Expose listeners from config.yaml as needed, for example:
+    # ports:
+    #   - "${PRIZRAK_HTTP_PORT:-7890}:7890/tcp"
+    #   - "${PRIZRAK_SOCKS_PORT:-7891}:7891/tcp"
