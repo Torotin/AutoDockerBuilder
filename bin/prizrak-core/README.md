@@ -47,6 +47,7 @@ At build time the core is downloaded from **Prizrak-Core GitHub releases** (via 
 | `/temp/prizrak-update/` | Staging area during updates (not persisted) |
 | `/temp/prizrak-backup/` | Backup binary + geo before replace |
 | `/temp/prizrak-core.pid` | Child PID for hard restart |
+| `/opt/prizrak/healthcheck.sh` | Docker/compose HEALTHCHECK (PID + update-window aware) |
 
 `VOLUME ["/root/.config/mihomo/"]` — bind-mount or named volume so `config.yaml` and geo survive restarts. A bind mount hides geo downloaded into that path at build time. On startup the entrypoint copies any missing geo file from `/opt/prizrak/geo/` and does not overwrite a file that is already in the config dir.
 
@@ -85,6 +86,16 @@ On each interval, `update-core.sh`:
 7. On success, writes the new tag to `installed-release` and removes the stage dir.
 
 Stock Mihomo **`/upgrade` is not used** as a download channel for the core; binaries come only from Prizrak-Core release assets (wget/curl), matching the upstream design constraint.
+
+## Health
+
+Compose uses `/opt/prizrak/healthcheck.sh` (not a raw `kill -0`):
+
+- healthy if the core child PID is alive;
+- also healthy while an update is in flight (`/temp/prizrak-update.lock` or `${PRIZRAK_PID_FILE}.restart`), so a hard restart does not flap Docker health;
+- otherwise waits up to `PRIZRAK_HC_GRACE_SEC` (default 4s) for a live PID, then fails.
+
+`start_period` is 30s so first startup can finish before failures count.
 
 ## Example
 

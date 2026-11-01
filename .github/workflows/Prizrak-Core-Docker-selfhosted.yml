@@ -100,6 +100,7 @@ jobs:
           bash tests/prizrak-core/test-asset-name.sh
           bash tests/prizrak-core/test-update-core.sh
           bash tests/prizrak-core/test-entrypoint.sh
+          bash tests/prizrak-core/test-healthcheck.sh
 
   docker:
     needs: validate

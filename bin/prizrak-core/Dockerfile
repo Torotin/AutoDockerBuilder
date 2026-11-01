@@ -17,10 +17,11 @@ RUN apk add --no-cache \
     tzdata
 
 COPY bin/prizrak-core/asset-name.sh /opt/prizrak/asset-name.sh
+COPY bin/prizrak-core/healthcheck.sh /opt/prizrak/healthcheck.sh
 COPY DockerEntrypoint.sh /opt/prizrak/DockerEntrypoint.sh
 COPY update-core.sh /opt/prizrak/update-core.sh
 
-RUN chmod +x /opt/prizrak/DockerEntrypoint.sh /opt/prizrak/update-core.sh
+RUN chmod +x /opt/prizrak/DockerEntrypoint.sh /opt/prizrak/update-core.sh /opt/prizrak/healthcheck.sh
 
 RUN set -eux; \
     . /opt/prizrak/asset-name.sh; \
@@ -38,5 +39,8 @@ RUN set -eux; \
     done
 
 VOLUME ["/root/.config/mihomo/"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD /opt/prizrak/healthcheck.sh
 
 ENTRYPOINT ["/opt/prizrak/DockerEntrypoint.sh"]
