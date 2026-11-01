@@ -16,6 +16,7 @@ PRIZRAK_HEALTH_CMD="${PRIZRAK_HEALTH_CMD:-true}"
 PRIZRAK_RESTART_CMD="${PRIZRAK_RESTART_CMD:-:}"
 
 STAGED_BIN="${PRIZRAK_STAGE_DIR}/prizrak-core"
+STAGED_GEO_DIR="${PRIZRAK_STAGE_DIR}/geo"
 
 cleanup_lock() {
   rm -rf "${PRIZRAK_LOCK_FILE}"
@@ -58,10 +59,9 @@ stage_and_verify() {
   asset="$(prizrak_asset_name "${os}" "${arch}" "${PRIZRAK_CORE_VARIANT}" "${tag}")"
   release_url="https://github.com/${PRIZRAK_REPO}/releases/download/${tag}"
   core_gz="${PRIZRAK_STAGE_DIR}/${asset}"
-  geo_dir="${PRIZRAK_STAGE_DIR}/geo"
 
   rm -rf "${PRIZRAK_STAGE_DIR}"
-  mkdir -p "${geo_dir}"
+  mkdir -p "${STAGED_GEO_DIR}"
 
   if ! download_file "${release_url}/${asset}" "${core_gz}"; then
     rm -rf "${PRIZRAK_STAGE_DIR}"
@@ -75,7 +75,7 @@ stage_and_verify() {
   chmod +x "${STAGED_BIN}"
 
   for geo_asset in geoip.dat geosite.dat geoip.metadb; do
-    if ! download_file "${release_url}/${geo_asset}" "${geo_dir}/${geo_asset}"; then
+    if ! download_file "${release_url}/${geo_asset}" "${STAGED_GEO_DIR}/${geo_asset}"; then
       rm -rf "${PRIZRAK_STAGE_DIR}"
       return 1
     fi
@@ -91,6 +91,15 @@ apply_binary() {
   mkdir -p "$(dirname "${PRIZRAK_BIN}")"
   cp -f "${STAGED_BIN}" "${PRIZRAK_BIN}"
   chmod +x "${PRIZRAK_BIN}"
+}
+
+apply_geo() {
+  mkdir -p "${PRIZRAK_CONFIG_DIR}"
+  for geo_asset in geoip.dat geosite.dat geoip.metadb; do
+    tmp="${PRIZRAK_CONFIG_DIR}/.${geo_asset}.tmp"
+    cp -f "${STAGED_GEO_DIR}/${geo_asset}" "${tmp}"
+    mv -f "${tmp}" "${PRIZRAK_CONFIG_DIR}/${geo_asset}"
+  done
 }
 
 restore_backup() {
@@ -172,6 +181,7 @@ fi
 stage_and_verify "${new_tag}"
 backup_current
 apply_binary
+apply_geo
 restart_core
 
 if ! run_health; then

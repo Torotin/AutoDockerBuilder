@@ -25,6 +25,9 @@ setup_case() {
   printf 'old' >"${PRIZRAK_BIN}"
   chmod +x "${PRIZRAK_BIN}"
   printf 'v1.0.0\n' >"${PRIZRAK_STATE_FILE}"
+  for geo_asset in geoip.dat geosite.dat geoip.metadb; do
+    printf 'old-%s' "${geo_asset}" >"${PRIZRAK_CONFIG_DIR}/${geo_asset}"
+  done
 }
 
 write_fake_curl() {
@@ -62,7 +65,7 @@ case "\${url}" in
     ;;
   */geoip.dat|*/geosite.dat|*/geoip.metadb)
     [ -n "\${out}" ] || exit 2
-    printf 'geo' >"\${out}"
+    printf 'new-%s' "\${url##*/}" >"\${out}"
     ;;
   *)
     printf 'unexpected URL: %s\n' "\${url}" >&2
@@ -104,6 +107,9 @@ test_failed_download_keeps_binary() {
 
   assert_file_content "${PRIZRAK_BIN}" old
   [ ! -e "${PRIZRAK_BACKUP_DIR}/prizrak-core" ] || fail "backup should not be created before download succeeds"
+  assert_file_content "${PRIZRAK_CONFIG_DIR}/geoip.dat" old-geoip.dat
+  assert_file_content "${PRIZRAK_CONFIG_DIR}/geosite.dat" old-geosite.dat
+  assert_file_content "${PRIZRAK_CONFIG_DIR}/geoip.metadb" old-geoip.metadb
 }
 
 test_failed_health_restores_backup() {
@@ -127,6 +133,9 @@ test_success_advances_state() {
 
   assert_file_content "${PRIZRAK_BIN}" new
   assert_file_content "${PRIZRAK_STATE_FILE}" v2.0.0
+  assert_file_content "${PRIZRAK_CONFIG_DIR}/geoip.dat" new-geoip.dat
+  assert_file_content "${PRIZRAK_CONFIG_DIR}/geosite.dat" new-geosite.dat
+  assert_file_content "${PRIZRAK_CONFIG_DIR}/geoip.metadb" new-geoip.metadb
   [ ! -d "${PRIZRAK_STAGE_DIR}" ] || fail "stage dir should be cleaned after success"
 }
 
