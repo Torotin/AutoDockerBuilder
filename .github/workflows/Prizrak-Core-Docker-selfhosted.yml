@@ -11,7 +11,7 @@ on:
       build_arm64:
         description: Build linux/arm64/v8
         required: false
-        default: false
+        default: true
         type: boolean
       build_386:
         description: Ignored for Prizrak-Core because linux/386 is unsupported
@@ -46,7 +46,7 @@ on:
         type: boolean
       build_arm64:
         required: false
-        default: false
+        default: true
         type: boolean
       build_386:
         required: false
