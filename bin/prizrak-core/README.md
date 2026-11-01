@@ -63,6 +63,7 @@ At build time the core is downloaded from **Prizrak-Core GitHub releases** (via 
 | `PRIZRAK_SECRET` | *(from config)* | Bearer token for controller `/restart` |
 | `PRIZRAK_UPDATE_SCRIPT` | `/opt/prizrak/update-core.sh` | Updater script path |
 | `PRIZRAK_PID_FILE` | `/temp/prizrak-core.pid` | Core child PID file |
+| `PRIZRAK_GEO_BASE_URL` | `https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest` | Base URL for runtime geo downloads (`geoip.dat`, `geosite.dat`, `geoip.metadb`) |
 
 Entrypoint passthrough arguments are forwarded to the core (for example `-v` for version).
 
@@ -72,7 +73,7 @@ On each interval, `update-core.sh`:
 
 1. Acquires a lock (skip tick if another update runs).
 2. Resolves the latest tag from the GitHub Releases API and compares it to `installed-release`.
-3. **Stages** the new core (and geo from the **Prizrak-Core release**) under `/temp/prizrak-update/` — if download or unpack fails, nothing on disk is changed.
+3. **Stages** the new core (from Prizrak-Core releases) and geo (from [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat), same source as bake; override with `PRIZRAK_GEO_BASE_URL`) under `/temp/prizrak-update/` — if download or unpack fails, nothing on disk is changed.
 4. **Backs up** the current binary and geo under `/temp/prizrak-backup/`.
 5. Replaces the binary and geo, then **soft-restarts** via `POST …/restart` when controller URL/secret are available (`PRIZRAK_CONTROLLER_URL` / `PRIZRAK_SECRET` override `config.yaml`).
 6. Runs `PRIZRAK_HEALTH_CMD` (default success); on failure **restores** backup and restarts again without advancing `installed-release`.

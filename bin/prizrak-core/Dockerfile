@@ -31,7 +31,7 @@ RUN set -eux; \
     curl -fsSL "${release_url}/${asset}" | gzip -dc > /opt/prizrak/prizrak-core; \
     chmod +x /opt/prizrak/prizrak-core; \
     printf '%s\n' "${PRIZRAK_VERSION}" > /opt/prizrak/installed-release; \
-    geo_base="https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download"; \
+    geo_base="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest"; \
     for geo_asset in geoip.dat geosite.dat geoip.metadb; do \
         curl -fsSL -o "/root/.config/mihomo/${geo_asset}" "${geo_base}/${geo_asset}"; \
     done
