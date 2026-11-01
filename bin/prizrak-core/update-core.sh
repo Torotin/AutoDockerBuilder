@@ -14,8 +14,15 @@ PRIZRAK_REPO="${PRIZRAK_REPO:-legiz-ru/Prizrak-Core}"
 PRIZRAK_GEO_BASE_URL="${PRIZRAK_GEO_BASE_URL:-https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest}"
 PRIZRAK_CORE_VARIANT="${PRIZRAK_CORE_VARIANT:-v3}"
 PRIZRAK_CURL="${PRIZRAK_CURL:-curl}"
-PRIZRAK_HEALTH_CMD="${PRIZRAK_HEALTH_CMD:-true}"
+PRIZRAK_PID_FILE="${PRIZRAK_PID_FILE:-/temp/prizrak-core.pid}"
+PRIZRAK_HEALTH_CMD="${PRIZRAK_HEALTH_CMD:-default_health}"
+PRIZRAK_HEALTH_WAIT_SEC="${PRIZRAK_HEALTH_WAIT_SEC:-15}"
+PRIZRAK_HEALTH_SETTLE_SEC="${PRIZRAK_HEALTH_SETTLE_SEC:-1}"
+PRIZRAK_HEALTH_PROBE_TIMEOUT="${PRIZRAK_HEALTH_PROBE_TIMEOUT:-2}"
 PRIZRAK_RESTART_CMD="${PRIZRAK_RESTART_CMD:-:}"
+
+RESTART_MODE=""
+PRIZRAK_HEALTH_OLD_PID=""
 
 STAGED_BIN="${PRIZRAK_STAGE_DIR}/prizrak-core"
 STAGED_GEO_DIR="${PRIZRAK_STAGE_DIR}/geo"
@@ -173,21 +180,125 @@ soft_restart() {
 
   url="$(normalize_controller_url "${url}")"
   if [ -n "${secret}" ]; then
-    ${PRIZRAK_CURL} -fsS -X POST -H "Authorization: Bearer ${secret}" "${url%/}/restart" >/dev/null
+    ${PRIZRAK_CURL} -fsS -X POST -H "Authorization: Bearer ${secret}" "${url%/}/restart" >/dev/null || return 1
   else
-    ${PRIZRAK_CURL} -fsS -X POST "${url%/}/restart" >/dev/null
+    ${PRIZRAK_CURL} -fsS -X POST "${url%/}/restart" >/dev/null || return 1
   fi
 }
 
 restart_core() {
   if soft_restart; then
+    RESTART_MODE="soft"
     return 0
   fi
-  eval "${PRIZRAK_RESTART_CMD}"
+  RESTART_MODE="hard"
+  eval "${PRIZRAK_RESTART_CMD}" || return 1
+}
+
+read_pidfile() {
+  [ -f "${PRIZRAK_PID_FILE}" ] || return 1
+  pid="$(sed -n '1{s/[[:space:]]*$//;p;q;}' "${PRIZRAK_PID_FILE}")"
+  case "${pid}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "${pid}"
+}
+
+pid_is_alive() {
+  pid="$1"
+  case "${pid}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "${pid}" 2>/dev/null
+}
+
+capture_health_pid() {
+  PRIZRAK_HEALTH_OLD_PID=""
+  if [ -f "${PRIZRAK_PID_FILE}" ]; then
+    PRIZRAK_HEALTH_OLD_PID="$(sed -n '1{s/[[:space:]]*$//;p;q;}' "${PRIZRAK_PID_FILE}" || true)"
+  fi
+}
+
+probe_controller() {
+  url="${PRIZRAK_CONTROLLER_URL:-}"
+  secret="${PRIZRAK_SECRET:-}"
+
+  if [ -z "${url}" ]; then
+    url="$(controller_from_config || true)"
+  fi
+  if [ -z "${url}" ]; then
+    return 0
+  fi
+  if [ -z "${secret}" ]; then
+    secret="$(secret_from_config || true)"
+  fi
+
+  url="$(normalize_controller_url "${url}")"
+  if [ -n "${secret}" ]; then
+    ${PRIZRAK_CURL} -fsS --max-time "${PRIZRAK_HEALTH_PROBE_TIMEOUT}" \
+      -H "Authorization: Bearer ${secret}" \
+      "${url%/}/version" >/dev/null || return 1
+  else
+    ${PRIZRAK_CURL} -fsS --max-time "${PRIZRAK_HEALTH_PROBE_TIMEOUT}" \
+      "${url%/}/version" >/dev/null || return 1
+  fi
+}
+
+default_health() {
+  attempts=$((PRIZRAK_HEALTH_WAIT_SEC * 5))
+  settle_ticks=$((PRIZRAK_HEALTH_SETTLE_SEC * 5))
+  if [ "${attempts}" -lt 1 ]; then
+    attempts=1
+  fi
+
+  stable=0
+  stable_pid=""
+  i=0
+  while [ "${i}" -lt "${attempts}" ]; do
+    pid="$(read_pidfile || true)"
+    candidate=0
+    if pid_is_alive "${pid}"; then
+      if [ "${RESTART_MODE}" != "hard" ] || [ -z "${PRIZRAK_HEALTH_OLD_PID}" ] || [ "${pid}" != "${PRIZRAK_HEALTH_OLD_PID}" ]; then
+        candidate=1
+      fi
+    fi
+
+    if [ "${candidate}" -eq 1 ] && [ "${pid}" = "${stable_pid}" ]; then
+      stable=$((stable + 1))
+    elif [ "${candidate}" -eq 1 ]; then
+      stable_pid="${pid}"
+      stable=1
+    else
+      stable=0
+      stable_pid=""
+    fi
+
+    if [ "${candidate}" -eq 1 ] && [ "${stable}" -gt "${settle_ticks}" ]; then
+      if probe_controller; then
+        return 0
+      fi
+    fi
+
+    i=$((i + 1))
+    sleep 0.2
+  done
+  return 1
 }
 
 run_health() {
-  eval "${PRIZRAK_HEALTH_CMD}"
+  if [ "${PRIZRAK_HEALTH_CMD}" = "default_health" ]; then
+    default_health || return 1
+  else
+    eval "${PRIZRAK_HEALTH_CMD}" || return 1
+  fi
+}
+
+rollback_apply() {
+  restore_backup
+  restore_geo
+  restart_core || true
+  rm -rf "${PRIZRAK_STAGE_DIR}"
+  exit 1
 }
 
 write_state() {
@@ -210,14 +321,10 @@ backup_current
 backup_geo
 apply_binary
 apply_geo
-restart_core
+capture_health_pid
 
-if ! run_health; then
-  restore_backup
-  restore_geo
-  restart_core
-  rm -rf "${PRIZRAK_STAGE_DIR}"
-  exit 1
+if ! restart_core || ! run_health; then
+  rollback_apply
 fi
 
 write_state "${new_tag}"

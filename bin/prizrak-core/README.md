@@ -42,12 +42,13 @@ At build time the core is downloaded from **Prizrak-Core GitHub releases** (via 
 | --- | --- |
 | `/opt/prizrak/prizrak-core` | Writable installed binary |
 | `/opt/prizrak/installed-release` | Tag last successfully installed by bake or updater |
+| `/opt/prizrak/geo/` | Baked geo seed (`geoip.dat`, `geosite.dat`, `geoip.metadb`). Startup copies a file into the config dir only when that file is missing |
 | `/root/.config/mihomo/` | Config volume (`config.yaml`, geo, runtime overrides) |
 | `/temp/prizrak-update/` | Staging area during updates (not persisted) |
 | `/temp/prizrak-backup/` | Backup binary + geo before replace |
 | `/temp/prizrak-core.pid` | Child PID for hard restart |
 
-`VOLUME ["/root/.config/mihomo/"]` — bind-mount or named volume so `config.yaml` and geo survive restarts.
+`VOLUME ["/root/.config/mihomo/"]` — bind-mount or named volume so `config.yaml` and geo survive restarts. A bind mount hides geo downloaded into that path at build time. On startup the entrypoint copies any missing geo file from `/opt/prizrak/geo/` and does not overwrite a file that is already in the config dir.
 
 ## Environment variables
 
@@ -62,10 +63,14 @@ At build time the core is downloaded from **Prizrak-Core GitHub releases** (via 
 | `PRIZRAK_CONTROLLER_URL` | *(from config)* | External controller base URL for soft restart |
 | `PRIZRAK_SECRET` | *(from config)* | Bearer token for controller `/restart` |
 | `PRIZRAK_UPDATE_SCRIPT` | `/opt/prizrak/update-core.sh` | Updater script path |
-| `PRIZRAK_PID_FILE` | `/temp/prizrak-core.pid` | Core child PID file |
+| `PRIZRAK_PID_FILE` | `/temp/prizrak-core.pid` | Core child PID file. Default health waits until this file names a live process |
+| `PRIZRAK_GEO_SEED_DIR` | `/opt/prizrak/geo` | Baked geo used to fill missing config-dir files on startup |
+| `PRIZRAK_HEALTH_CMD` | `default_health` | Post-restart check. `default_health` waits for a live PID (a new PID after a hard restart) and probes `GET /version` when a controller URL is set |
+| `PRIZRAK_HEALTH_WAIT_SEC` | `15` | How long default health polls the PID file |
+| `PRIZRAK_HEALTH_SETTLE_SEC` | `1` | How long that PID must stay alive before health passes |
 | `PRIZRAK_GEO_BASE_URL` | `https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest` | Base URL for runtime geo downloads (`geoip.dat`, `geosite.dat`, `geoip.metadb`) |
 
-Entrypoint passthrough arguments are forwarded to the core (for example `-v` for version).
+Entrypoint passthrough arguments are forwarded to the core (for example `-v` for version). A core process that exits 0 on its own is returned to `docker run` and is not restarted. Any other exit restarts the core until the container is stopped. A hard update restart records a request before sending `TERM`, so the supervisor starts the new binary even when the old process exits 0.
 
 ## Update semantics
 
@@ -75,8 +80,8 @@ On each interval, `update-core.sh`:
 2. Resolves the latest tag from the GitHub Releases API and compares it to `installed-release`.
 3. **Stages** the new core (from Prizrak-Core releases) and geo (from [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat), same source as bake; override with `PRIZRAK_GEO_BASE_URL`) under `/temp/prizrak-update/` — if download or unpack fails, nothing on disk is changed.
 4. **Backs up** the current binary and geo under `/temp/prizrak-backup/`.
-5. Replaces the binary and geo, then **soft-restarts** via `POST …/restart` when controller URL/secret are available (`PRIZRAK_CONTROLLER_URL` / `PRIZRAK_SECRET` override `config.yaml`).
-6. Runs `PRIZRAK_HEALTH_CMD` (default success); on failure **restores** backup and restarts again without advancing `installed-release`.
+5. Replaces the binary and geo, then restarts: **soft-restart** via `POST …/restart` when a controller URL is available (`PRIZRAK_CONTROLLER_URL` / `PRIZRAK_SECRET` override `config.yaml`), otherwise `PRIZRAK_RESTART_CMD` (the entrypoint sends `TERM` to the PID file so the supervisor starts the new binary).
+6. Runs `PRIZRAK_HEALTH_CMD`. The default waits until `PRIZRAK_PID_FILE` names a live process — after a hard restart that must be a new PID — and, when a controller URL is configured, probes `GET /version`. If restart or health fails, the script **restores** the binary and geo, restarts again, and does not write `installed-release`.
 7. On success, writes the new tag to `installed-release` and removes the stage dir.
 
 Stock Mihomo **`/upgrade` is not used** as a download channel for the core; binaries come only from Prizrak-Core release assets (wget/curl), matching the upstream design constraint.

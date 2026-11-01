@@ -27,13 +27,14 @@ RUN set -eux; \
     test -n "${PRIZRAK_VERSION}"; \
     asset="$(prizrak_asset_name linux "${TARGETARCH}" "${PRIZRAK_CORE_VARIANT}" "${PRIZRAK_VERSION}")"; \
     release_url="https://github.com/${PRIZRAK_REPO}/releases/download/${PRIZRAK_VERSION}"; \
-    mkdir -p /opt/prizrak /root/.config/mihomo; \
+    mkdir -p /opt/prizrak/geo /root/.config/mihomo; \
     curl -fsSL "${release_url}/${asset}" | gzip -dc > /opt/prizrak/prizrak-core; \
     chmod +x /opt/prizrak/prizrak-core; \
     printf '%s\n' "${PRIZRAK_VERSION}" > /opt/prizrak/installed-release; \
     geo_base="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest"; \
     for geo_asset in geoip.dat geosite.dat geoip.metadb; do \
-        curl -fsSL -o "/root/.config/mihomo/${geo_asset}" "${geo_base}/${geo_asset}"; \
+        curl -fsSL -o "/opt/prizrak/geo/${geo_asset}" "${geo_base}/${geo_asset}"; \
+        cp -f "/opt/prizrak/geo/${geo_asset}" "/root/.config/mihomo/${geo_asset}"; \
     done
 
 VOLUME ["/root/.config/mihomo/"]

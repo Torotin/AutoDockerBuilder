@@ -12,7 +12,8 @@ services:
       PRIZRAK_CONTROLLER_URL: ${PRIZRAK_CONTROLLER_URL:-}
       PRIZRAK_SECRET: ${PRIZRAK_SECRET:-}
     volumes:
-      # Mount config.yaml and optional overrides; geo baked into the image is copied here at build time.
+      # Bind mount hides geo baked under /root/.config/mihomo.
+      # Missing geo files are copied from /opt/prizrak/geo on startup; existing files are kept.
       - type: bind
         source: ${PRIZRAK_CONFIG_HOST_DIR:-./prizrak-config}
         target: /root/.config/mihomo
