@@ -102,7 +102,8 @@ jobs:
       supported_platforms: linux/amd64,linux/arm64/v8,linux/386
       network: host
       build_args: |
-        ALPINE_MIRROR=http://mirror.yandex.ru/mirrors/alpine
+        ALPINE_MIRROR=https://mirror.yandex.ru/mirrors/alpine
+        ALPINE_MIRROR_FALLBACK=https://dl-cdn.alpinelinux.org/alpine
         GOPROXY=https://goproxy.cn,https://goproxy.io,direct
         GOSUMDB=sum.golang.google.cn
       build_amd64: ${{ inputs.build_amd64 }}

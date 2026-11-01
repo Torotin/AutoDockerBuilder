@@ -1,5 +1,6 @@
 # ========================================================
-ARG ALPINE_MIRROR=http://mirror.yandex.ru/mirrors/alpine
+ARG ALPINE_MIRROR=https://mirror.yandex.ru/mirrors/alpine
+ARG ALPINE_MIRROR_FALLBACK=https://dl-cdn.alpinelinux.org/alpine
 ARG GOPROXY=https://goproxy.cn,https://goproxy.io,direct
 ARG GOSUMDB=sum.golang.google.cn
 ARG BUILDPLATFORM=linux/amd64
@@ -24,18 +25,32 @@ FROM golang:1.27-alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
 ARG ALPINE_MIRROR
+ARG ALPINE_MIRROR_FALLBACK
 ARG GOPROXY
 ARG GOSUMDB
 
-RUN alpine_version="$(cut -d. -f1,2 /etc/alpine-release)" \
-  && printf "%s/v%s/main\n%s/v%s/community\n" "$ALPINE_MIRROR" "$alpine_version" "$ALPINE_MIRROR" "$alpine_version" > /etc/apk/repositories \
-  && apk add --no-cache --update \
-  build-base \
-  gcc \
-  wget \
-  curl \
-  unzip \
-  bash
+# Prefer configured mirror; retry; fall back to official CDN on flaky indexes/packages.
+RUN set -eux; \
+  alpine_version="$(cut -d. -f1,2 /etc/alpine-release)"; \
+  install_ok=0; \
+  for mirror in "${ALPINE_MIRROR}" "${ALPINE_MIRROR_FALLBACK}"; do \
+    printf "%s/v%s/main\n%s/v%s/community\n" "$mirror" "$alpine_version" "$mirror" "$alpine_version" > /etc/apk/repositories; \
+    for attempt in 1 2 3; do \
+      if apk add --no-cache --update \
+        build-base \
+        gcc \
+        wget \
+        curl \
+        unzip \
+        bash; then \
+        install_ok=1; \
+        break; \
+      fi; \
+      sleep $((attempt * 3)); \
+    done; \
+    [ "${install_ok}" = 1 ] && break; \
+  done; \
+  [ "${install_ok}" = 1 ]
 
 COPY . .
 COPY --from=frontend /src/internal/web/dist ./internal/web/dist
@@ -59,20 +74,33 @@ RUN ./DockerInit.sh "$TARGETARCH"
 # ========================================================
 FROM alpine
 ARG ALPINE_MIRROR
+ARG ALPINE_MIRROR_FALLBACK
 ENV TZ=Europe/Moscow
 WORKDIR /app
 
-RUN alpine_version="$(cut -d. -f1,2 /etc/alpine-release)" \
-  && printf "%s/v%s/main\n%s/v%s/community\n" "$ALPINE_MIRROR" "$alpine_version" "$ALPINE_MIRROR" "$alpine_version" > /etc/apk/repositories \
-  && apk add --no-cache --update \
-  ca-certificates \
-  fail2ban \
-  tzdata \
-  sqlite \
-  openssl \
-  jq \
-  curl \
-  bash
+RUN set -eux; \
+  alpine_version="$(cut -d. -f1,2 /etc/alpine-release)"; \
+  install_ok=0; \
+  for mirror in "${ALPINE_MIRROR}" "${ALPINE_MIRROR_FALLBACK}"; do \
+    printf "%s/v%s/main\n%s/v%s/community\n" "$mirror" "$alpine_version" "$mirror" "$alpine_version" > /etc/apk/repositories; \
+    for attempt in 1 2 3; do \
+      if apk add --no-cache --update \
+        ca-certificates \
+        fail2ban \
+        tzdata \
+        sqlite \
+        openssl \
+        jq \
+        curl \
+        bash; then \
+        install_ok=1; \
+        break; \
+      fi; \
+      sleep $((attempt * 3)); \
+    done; \
+    [ "${install_ok}" = 1 ] && break; \
+  done; \
+  [ "${install_ok}" = 1 ]
 
 # Copy only required build artifacts from builder stage
 COPY --from=builder /app/build /app/

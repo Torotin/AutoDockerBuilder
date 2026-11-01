@@ -15,7 +15,8 @@
 ## Build notes
 
 - Upstream latest GitHub Release tag drives image tag `torotin/3x-ui:<tag>` and `:latest`.
-- Build uses `network: host` and build args `ALPINE_MIRROR`, `GOPROXY`, `GOSUMDB`.
+- Build uses `network: host` and build args `ALPINE_MIRROR`, `ALPINE_MIRROR_FALLBACK`, `GOPROXY`, `GOSUMDB`.
+- `apk` installs retry on the primary mirror, then fall back to the official Alpine CDN.
 - Frontend (Vite) is built before the Go binary so `internal/web/dist` is embedded.
 
 ## Runtime contract
