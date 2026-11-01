@@ -16,6 +16,7 @@
 | 3x-ui | [`MHSanaei/3x-ui`](https://github.com/MHSanaei/3x-ui) | `torotin/3x-ui` | `3x-ui-Docker-selfhosted.yml` | [`bin/3x-ui/README.md`](bin/3x-ui/README.md) |
 | usque | [`Diniboy1123/usque`](https://github.com/Diniboy1123/usque) | `torotin/usque` | `usque-Docker-selfhosted.yml` | [`bin/usque/README.md`](bin/usque/README.md) |
 | telemt-stack | [`telemt/telemt`](https://github.com/telemt/telemt) + [`amirotin/telemt_panel`](https://github.com/amirotin/telemt_panel) | `torotin/telemt-stack` | `Telemt-Stack-Docker-selfhosted.yml` | [`bin/telemt-stack/README.md`](bin/telemt-stack/README.md) |
+| prizrak-core | [`legiz-ru/Prizrak-Core`](https://github.com/legiz-ru/Prizrak-Core) | `torotin/prizrak-core` | `Prizrak-Core-Docker-selfhosted.yml` | [`bin/prizrak-core/README.md`](bin/prizrak-core/README.md) |
 | Tor Proxy | Tor + [`lyrebird`](https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird) + [`gost`](https://github.com/go-gost/gost) + [`dnsproxy`](https://github.com/AdguardTeam/dnsproxy) | `torotin/tor-proxy` | `TorProxy-Docker-selfhosted.yml` | [`bin/tor-proxy/README.md`](bin/tor-proxy/README.md) |
 
 > Контракт каждого образа (порты, env, health, upstream docs) живёт в `bin/<project>/README.md`. Этот корневой README описывает общий pipeline сборки/релизов.
@@ -173,6 +174,7 @@ workdir: .
 
 * `Caddy-L4`
 * `telemt-stack`
+* `prizrak-core`
 
 ---
 
@@ -194,7 +196,7 @@ workdir: .
 | `recreate_release` | удалить существующий GitHub Release перед созданием нового |
 | `release_skip` | не создавать GitHub Release |
 
-Для `Caddy-L4` и `telemt-stack` параметр `build_386` игнорируется, потому что `linux/386` не поддерживается.
+Для `Caddy-L4`, `telemt-stack` и `prizrak-core` параметр `build_386` игнорируется, потому что `linux/386` не поддерживается.
 
 ---
 
@@ -206,6 +208,7 @@ workdir: .
 | 3x-ui        | `linux/amd64`, `linux/386` | `linux/amd64`, `linux/arm64/v8`, `linux/386` |
 | usque        | `linux/amd64`, `linux/386` | `linux/amd64`, `linux/arm64/v8`, `linux/386` |
 | telemt-stack | `linux/amd64`              | `linux/amd64`, `linux/arm64/v8`              |
+| prizrak-core | `linux/amd64`, `linux/arm64/v8` | `linux/amd64`, `linux/arm64/v8`           |
 | Tor Proxy    | `linux/amd64`              | `linux/amd64`                                |
 
 ---
@@ -350,6 +353,7 @@ self-hosted-runner:
     3x-ui-Docker-selfhosted.yml
     usque-Docker-selfhosted.yml
     Telemt-Stack-Docker-selfhosted.yml
+    Prizrak-Core-Docker-selfhosted.yml
     TorProxy-Docker-selfhosted.yml     # отдельный workflow для Tor Proxy
 
 bin/
@@ -357,6 +361,7 @@ bin/
   3x-ui/          # см. bin/3x-ui/README.md
   usque/          # см. bin/usque/README.md
   telemt-stack/   # см. bin/telemt-stack/README.md
+  prizrak-core/   # см. bin/prizrak-core/README.md
   tor-proxy/      # см. bin/tor-proxy/README.md
 ```
 
@@ -414,6 +419,7 @@ jobs:
 | [3x-ui](bin/3x-ui/README.md) | `clone-release` → `WORKDIR/3x-ui` | `network: host`; build args `ALPINE_MIRROR`, `GOPROXY`, `GOSUMDB` |
 | [usque](bin/usque/README.md) | `clone-release` → `WORKDIR/usque` | custom Dockerfile + entrypoint |
 | [telemt-stack](bin/telemt-stack/README.md) | `in-repo-context` | combined telemt + telemt-panel binaries from GitHub Releases |
+| [prizrak-core](bin/prizrak-core/README.md) | `in-repo-context` | upstream release binary + geo rules; `PRIZRAK_VERSION` build arg; runtime auto-update via `update-core.sh` |
 | [Tor Proxy](bin/tor-proxy/README.md) | dedicated workflow | amd64 only; composite immutable tag from Tor/lyrebird/gost/dnsproxy versions |
 
 ---
@@ -546,16 +552,19 @@ release_skip
 | `.github/workflows/usque-Docker-selfhosted.yml` | `usque-Docker-selfhosted.yml` |
 | `bin/telemt-stack/**` | `Telemt-Stack-Docker-selfhosted.yml` |
 | `.github/workflows/Telemt-Stack-Docker-selfhosted.yml` | `Telemt-Stack-Docker-selfhosted.yml` |
+| `bin/prizrak-core/**` | `Prizrak-Core-Docker-selfhosted.yml` |
+| `tests/prizrak-core/**` | `Prizrak-Core-Docker-selfhosted.yml` |
+| `.github/workflows/Prizrak-Core-Docker-selfhosted.yml` | `Prizrak-Core-Docker-selfhosted.yml` |
 | `bin/tor-proxy/**` | `TorProxy-Docker-selfhosted.yml` |
 | `tests/tor-proxy/**` | `TorProxy-Docker-selfhosted.yml` |
 | `.github/workflows/TorProxy-Docker-selfhosted.yml` | `TorProxy-Docker-selfhosted.yml` |
-| `.github/workflows/_docker-project-build.yml` | все проекты на общем reusable workflow: `3x-ui`, `Caddy-L4`, `usque`, `telemt-stack` |
+| `.github/workflows/_docker-project-build.yml` | все проекты на общем reusable workflow: `3x-ui`, `Caddy-L4`, `usque`, `telemt-stack`, `prizrak-core` |
 
 Примеры:
 
 * изменение только `bin/caddy/dockerfile` запускает только Caddy-L4;
 * изменение только `bin/3x-ui/DockerInit.sh` запускает только 3x-ui;
-* изменение `_docker-project-build.yml` запускает `3x-ui`, `Caddy-L4`, `usque` и `telemt-stack`;
+* изменение `_docker-project-build.yml` запускает `3x-ui`, `Caddy-L4`, `usque`, `telemt-stack` и `prizrak-core`;
 * изменение `daily-trigger.yml` само по себе не запускает проектные сборки, потому что этот файл не входит в project prefixes;
 * изменение корневого `README.md` не запускает `daily-trigger.yml` (не в push `paths`);
 * изменение только `bin/<project>/README.md` **запускает** соответствующий project workflow, потому что путь входит в prefix `bin/<project>/`.

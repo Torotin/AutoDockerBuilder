@@ -61,6 +61,17 @@ jobs:
                 recreateReleaseOnPush: true,
               },
               {
+                workflow: 'Prizrak-Core-Docker-selfhosted.yml',
+                prefixes: [
+                  'bin/prizrak-core/',
+                  'tests/prizrak-core/',
+                  '.github/workflows/Prizrak-Core-Docker-selfhosted.yml',
+                  '.github/workflows/_docker-project-build.yml',
+                ],
+                inputs: {},
+                recreateReleaseOnPush: true,
+              },
+              {
                 workflow: 'TorProxy-Docker-selfhosted.yml',
                 prefixes: ['bin/tor-proxy/', 'tests/tor-proxy/', '.github/workflows/TorProxy-Docker-selfhosted.yml'],
                 inputs: {},
