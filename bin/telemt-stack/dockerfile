@@ -4,6 +4,8 @@ ARG TARGETARCH
 ARG TELEMT_REPOSITORY=telemt/telemt
 ARG TELEMT_VERSION=latest
 ARG TELEMT_PANEL_REPOSITORY=amirotin/telemt_panel
+# latest = newest GitHub release including prereleases (non-draft).
+# latest-stable = GitHub /releases/latest (excludes prereleases).
 ARG TELEMT_PANEL_VERSION=latest
 
 RUN set -eux; \
@@ -12,6 +14,7 @@ RUN set -eux; \
         bash \
         ca-certificates \
         curl \
+        jq \
         tar; \
     rm -rf /var/lib/apt/lists/*
 
@@ -21,16 +24,39 @@ RUN set -eux; \
         arm64) release_arch="aarch64" ;; \
         *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
+    resolve_release_tag() { \
+        repository="$1"; \
+        version="$2"; \
+        include_prerelease="$3"; \
+        if [ "${version}" != "latest" ] && [ "${version}" != "latest-stable" ]; then \
+            printf '%s\n' "${version}"; \
+            return 0; \
+        fi; \
+        if [ "${version}" = "latest-stable" ] || [ "${include_prerelease}" != "true" ]; then \
+            tag="$(curl -fsSL \
+                -H 'Accept: application/vnd.github+json' \
+                -H 'User-Agent: AutoDockerBuilder-telemt-stack' \
+                "https://api.github.com/repos/${repository}/releases/latest" \
+                | jq -r '.tag_name // empty')"; \
+        else \
+            tag="$(curl -fsSL \
+                -H 'Accept: application/vnd.github+json' \
+                -H 'User-Agent: AutoDockerBuilder-telemt-stack' \
+                "https://api.github.com/repos/${repository}/releases?per_page=20" \
+                | jq -r '[.[] | select(.draft == false)][0].tag_name // empty')"; \
+        fi; \
+        if [ -z "${tag}" ] || [ "${tag}" = "null" ]; then \
+            echo "Unable to resolve release tag for ${repository} (version=${version})" >&2; \
+            exit 1; \
+        fi; \
+        printf '%s\n' "${tag}"; \
+    }; \
     download_release_asset() { \
         repository="$1"; \
         version="$2"; \
         asset="$3"; \
         output="$4"; \
-        if [ "${version}" = "latest" ]; then \
-            url="https://github.com/${repository}/releases/latest/download/${asset}"; \
-        else \
-            url="https://github.com/${repository}/releases/download/${version}/${asset}"; \
-        fi; \
+        url="https://github.com/${repository}/releases/download/${version}/${asset}"; \
         curl -fL --retry 5 --retry-delay 2 "${url}" -o "${output}"; \
     }; \
     install_binary_from_archive() { \
@@ -51,13 +77,18 @@ RUN set -eux; \
         install -m 0755 "${found}" "${destination}"; \
         rm -rf "${tmpdir}"; \
     }; \
+    telemt_tag="$(resolve_release_tag "${TELEMT_REPOSITORY}" "${TELEMT_VERSION}" false)"; \
+    panel_tag="$(resolve_release_tag "${TELEMT_PANEL_REPOSITORY}" "${TELEMT_PANEL_VERSION}" true)"; \
+    echo "Resolved telemt=${telemt_tag} telemt-panel=${panel_tag}"; \
     telemt_asset="telemt-${release_arch}-linux-gnu.tar.gz"; \
     telemt_panel_asset="telemt-panel-${release_arch}-linux-gnu.tar.gz"; \
-    download_release_asset "${TELEMT_REPOSITORY}" "${TELEMT_VERSION}" "${telemt_asset}" /tmp/telemt.tar.gz; \
-    download_release_asset "${TELEMT_PANEL_REPOSITORY}" "${TELEMT_PANEL_VERSION}" "${telemt_panel_asset}" /tmp/telemt-panel.tar.gz; \
+    download_release_asset "${TELEMT_REPOSITORY}" "${telemt_tag}" "${telemt_asset}" /tmp/telemt.tar.gz; \
+    download_release_asset "${TELEMT_PANEL_REPOSITORY}" "${panel_tag}" "${telemt_panel_asset}" /tmp/telemt-panel.tar.gz; \
     install_binary_from_archive /tmp/telemt.tar.gz telemt /usr/local/bin/telemt; \
     install_binary_from_archive /tmp/telemt-panel.tar.gz telemt-panel /usr/local/bin/telemt-panel; \
     rm -f /tmp/telemt.tar.gz /tmp/telemt-panel.tar.gz; \
+    printf '%s\n' "${telemt_tag}" > /usr/local/share/telemt-version; \
+    printf '%s\n' "${panel_tag}" > /usr/local/share/telemt-panel-version; \
     test -x /usr/local/bin/telemt; \
     test -x /usr/local/bin/telemt-panel
 

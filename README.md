@@ -418,7 +418,7 @@ jobs:
 | [Caddy-L4](bin/caddy/README.md) | `in-repo-context` | amd64/arm64; `build_386` ignored |
 | [3x-ui](bin/3x-ui/README.md) | `clone-release` → `WORKDIR/3x-ui` | `network: host`; build args `ALPINE_MIRROR`, `GOPROXY`, `GOSUMDB` |
 | [usque](bin/usque/README.md) | `clone-release` → `WORKDIR/usque` | custom Dockerfile + entrypoint |
-| [telemt-stack](bin/telemt-stack/README.md) | `in-repo-context` | combined telemt + telemt-panel binaries from GitHub Releases |
+| [telemt-stack](bin/telemt-stack/README.md) | `in-repo-context` | telemt stable + telemt-panel newest incl. prereleases; composite tag `<telemt>_panel-<panel>` |
 | [prizrak-core](bin/prizrak-core/README.md) | `in-repo-context` | upstream release binary + geo rules; `PRIZRAK_VERSION` build arg; runtime auto-update via `update-core.sh` |
 | [Tor Proxy](bin/tor-proxy/README.md) | dedicated workflow | amd64 only; composite immutable tag from Tor/lyrebird/gost/dnsproxy versions |
 

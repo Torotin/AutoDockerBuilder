@@ -86,6 +86,13 @@ on:
         required: false
         type: string
         default: ""
+      repo_tag_override:
+        description: >-
+          Optional explicit upstream/composite tag. When set, skips fetching
+          releases/latest from repo_ext_name and uses this value as repo_tag.
+        required: false
+        type: string
+        default: ""
       network:
         description: Optional Docker build network mode
         required: false
@@ -160,8 +167,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO_EXT_NAME: ${{ inputs.repo_ext_name }}
+          REPO_TAG_OVERRIDE: ${{ inputs.repo_tag_override }}
         run: |
           set -euo pipefail
+          if [ -n "${REPO_TAG_OVERRIDE}" ]; then
+            echo "Using repo_tag_override=${REPO_TAG_OVERRIDE}"
+            echo "latest_tag=${REPO_TAG_OVERRIDE}" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
           response="$(curl -fsSL \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -462,7 +475,14 @@ jobs:
             echo
             echo "### Sources"
             echo "- Upstream repository: https://github.com/${REPO_EXT_NAME}"
-            echo "- Upstream release: https://github.com/${REPO_EXT_NAME}/releases/tag/${REPO_TAG}"
+            if [[ "${REPO_TAG}" == *_panel-* ]]; then
+              telemt_tag="${REPO_TAG%%_panel-*}"
+              panel_tag="${REPO_TAG#*_panel-}"
+              echo "- telemt release: https://github.com/telemt/telemt/releases/tag/${telemt_tag}"
+              echo "- telemt-panel release: https://github.com/amirotin/telemt_panel/releases/tag/${panel_tag}"
+            else
+              echo "- Upstream release: https://github.com/${REPO_EXT_NAME}/releases/tag/${REPO_TAG}"
+            fi
             echo "- Build workflow: ${RUN_URL}"
             echo
             echo "### Images"

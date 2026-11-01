@@ -83,6 +83,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    name: Resolve telemt + panel tags
+    runs-on: ubuntu-latest
+    outputs:
+      telemt_tag: ${{ steps.tags.outputs.telemt_tag }}
+      panel_tag: ${{ steps.tags.outputs.panel_tag }}
+      composite_tag: ${{ steps.tags.outputs.composite_tag }}
+    steps:
+      - name: Resolve upstream release tags
+        id: tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          telemt_tag="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/telemt/telemt/releases/latest" \
+            | jq -r '.tag_name // empty')"
+          panel_tag="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/amirotin/telemt_panel/releases?per_page=20" \
+            | jq -r '[.[] | select(.draft == false)][0].tag_name // empty')"
+          if [ -z "${telemt_tag}" ] || [ "${telemt_tag}" = "null" ]; then
+            echo "Unable to resolve telemt/telemt latest release" >&2
+            exit 1
+          fi
+          if [ -z "${panel_tag}" ] || [ "${panel_tag}" = "null" ]; then
+            echo "Unable to resolve amirotin/telemt_panel newest release (incl. prerelease)" >&2
+            exit 1
+          fi
+          composite_tag="${telemt_tag}_panel-${panel_tag}"
+          echo "telemt_tag=${telemt_tag}" >> "${GITHUB_OUTPUT}"
+          echo "panel_tag=${panel_tag}" >> "${GITHUB_OUTPUT}"
+          echo "composite_tag=${composite_tag}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved telemt=${telemt_tag} panel=${panel_tag} composite=${composite_tag}"
+
   validate:
     name: Validate telemt-stack runtime
     runs-on: ubuntu-latest
@@ -111,7 +149,9 @@ jobs:
           PY
 
   docker:
-    needs: validate
+    needs:
+      - resolve
+      - validate
     uses: ./.github/workflows/_docker-project-build.yml
     with:
       project_name: telemt-stack
@@ -119,6 +159,7 @@ jobs:
       release_name_prefix: Telemt Stack
       artifact_prefix: telemt-stack
       repo_ext_name: telemt/telemt
+      repo_tag_override: ${{ needs.resolve.outputs.composite_tag }}
       docker_repo: torotin/telemt-stack
       prepare_mode: in-repo-context
       workdir: .
@@ -128,9 +169,9 @@ jobs:
       supported_platforms: linux/amd64,linux/arm64/v8
       build_args: |
         TELEMT_REPOSITORY=telemt/telemt
-        TELEMT_VERSION=latest
+        TELEMT_VERSION=${{ needs.resolve.outputs.telemt_tag }}
         TELEMT_PANEL_REPOSITORY=amirotin/telemt_panel
-        TELEMT_PANEL_VERSION=latest
+        TELEMT_PANEL_VERSION=${{ needs.resolve.outputs.panel_tag }}
       build_amd64: ${{ inputs.build_amd64 }}
       build_arm64: ${{ inputs.build_arm64 }}
       build_386: ${{ inputs.build_386 }}

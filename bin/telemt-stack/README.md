@@ -12,6 +12,25 @@
 | Files | `dockerfile`, `DockerEntrypoint.sh`, `docker-compose.telemt-stack.yml`, `telemt-config.toml`, `telemt-panel-config.toml` |
 | Platforms | default `linux/amd64`; also `linux/arm64/v8` (`linux/386` off) |
 
+## Version selection
+
+| Component | Source | Rule |
+| --- | --- | --- |
+| `telemt` | [telemt/telemt](https://github.com/telemt/telemt) | latest **stable** GitHub Release (`/releases/latest`) |
+| `telemt-panel` | [amirotin/telemt_panel](https://github.com/amirotin/telemt_panel) | newest non-draft release, **including prereleases** |
+
+CI writes a composite Docker/GitHub tag:
+
+```text
+torotin/telemt-stack:<telemtTag>_panel-<panelTag>
+```
+
+Example: `torotin/telemt-stack:v3.5.15_panel-v1.0.0-rc.3`.
+
+Dockerfile build-args still accept explicit tags. For local builds, `TELEMT_PANEL_VERSION=latest` resolves the newest panel release including prereleases; use `latest-stable` to force `/releases/latest` for the panel.
+
+Resolved tags are also written into the image as `/usr/local/share/telemt-version` and `/usr/local/share/telemt-panel-version`.
+
 ## Runtime contract
 
 Entrypoint starts:
