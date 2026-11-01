@@ -31,12 +31,41 @@ Dockerfile build-args still accept explicit tags. For local builds, `TELEMT_PANE
 
 Resolved tags are also written into the image as `/usr/local/share/telemt-version` and `/usr/local/share/telemt-panel-version`.
 
+## GeoIP (telemt-panel)
+
+Build downloads MaxMind GeoLite2 `.mmdb` files from [P3TERX/GeoLite.mmdb](https://github.com/P3TERX/GeoLite.mmdb) (direct HTTPS `.mmdb`, not archives). No MaxMind license key is used.
+
+| Path | Role |
+| --- | --- |
+| `/usr/share/telemt-panel/geoip/GeoLite2-City.mmdb` | City DB (image, world-readable) |
+| `/usr/share/telemt-panel/geoip/GeoLite2-ASN.mmdb` | ASN DB |
+| `/usr/share/telemt-panel/geoip/GeoLite2-Country.mmdb` | Country DB |
+| `/usr/share/telemt-panel/geoip/SOURCE.txt` | Mirror URL + UTC fetch stamp + byte sizes |
+| `/var/lib/telemt-panel/geoip/*` | Optional seed copy at container start (missing files only) |
+
+Point panel `[geoip]` absolute paths at the image files (see `telemt-panel-config.toml`) or at the seeded `data_dir` copies. This does not replace URL-based / `ensure-geoip.sh` flows: if files already exist under the data dir, the entrypoint leaves them alone.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `TELEMT_GEOIP_IMAGE_DIR` | `/usr/share/telemt-panel/geoip` | baked MMDB directory |
+| `TELEMT_GEOIP_DATA_DIR` | `/var/lib/telemt-panel/geoip` | seed destination for volume/`data_dir` layouts |
+| `TELEMT_GEOIP_SEED` | `true` | copy missing MMDB/SOURCE into data dir on start |
+
+Local check after build:
+
+```bash
+docker run --rm --entrypoint ls torotin/telemt-stack:latest -la /usr/share/telemt-panel/geoip
+docker run --rm --entrypoint sh torotin/telemt-stack:latest -c \
+  'grep -a -q $'\''\xab\xcd\xefMaxMind.com'\'' /usr/share/telemt-panel/geoip/GeoLite2-City.mmdb && cat /usr/share/telemt-panel/geoip/SOURCE.txt'
+```
+
 ## Runtime contract
 
 Entrypoint starts:
 
-1. `telemt /etc/telemt/config.toml`
-2. Optionally `telemt-panel --config /etc/telemt-panel/config.toml` when `TELEMT_PANEL_ENABLED` is truthy
+1. Seed missing GeoIP files into `TELEMT_GEOIP_DATA_DIR` (when enabled)
+2. `telemt /etc/telemt/config.toml`
+3. Optionally `telemt-panel --config /etc/telemt-panel/config.toml` when `TELEMT_PANEL_ENABLED` is truthy
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

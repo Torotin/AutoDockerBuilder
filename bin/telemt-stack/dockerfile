@@ -92,13 +92,61 @@ RUN set -eux; \
     test -x /usr/local/bin/telemt; \
     test -x /usr/local/bin/telemt-panel
 
+# GeoLite2 MMDB for telemt-panel GeoIP (no MaxMind license / no runtime download).
+# Mirror: P3TERX/GeoLite.mmdb (direct .mmdb over HTTPS).
+ARG TELEMT_GEOIP_BASE_URL=https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download
+ARG TELEMT_GEOIP_DIR=/usr/share/telemt-panel/geoip
+
+RUN set -eux; \
+    geoip_dir="${TELEMT_GEOIP_DIR}"; \
+    base_url="${TELEMT_GEOIP_BASE_URL}"; \
+    mkdir -p "${geoip_dir}"; \
+    download_mmdb() { \
+        name="$1"; \
+        url="${base_url}/${name}"; \
+        dest="${geoip_dir}/${name}"; \
+        curl -fL --retry 5 --retry-delay 2 -o "${dest}" "${url}"; \
+        size="$(wc -c < "${dest}")"; \
+        if [ "${size}" -lt 65536 ]; then \
+            echo "GeoIP download too small (${size} bytes): ${url}" >&2; \
+            exit 1; \
+        fi; \
+        # MaxMind DB metadata marker: bytes ab cd ef + "MaxMind.com"
+        marker="$(printf '\253\315\357MaxMind.com')"; \
+        if ! grep -a -F -q "${marker}" "${dest}"; then \
+            echo "GeoIP file missing MaxMind DB marker: ${dest}" >&2; \
+            exit 1; \
+        fi; \
+        chmod 0644 "${dest}"; \
+    }; \
+    download_mmdb GeoLite2-City.mmdb; \
+    download_mmdb GeoLite2-ASN.mmdb; \
+    download_mmdb GeoLite2-Country.mmdb; \
+    { \
+        echo "mirror=P3TERX/GeoLite.mmdb"; \
+        echo "base_url=${base_url}"; \
+        echo "fetched_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+        echo "files=GeoLite2-City.mmdb,GeoLite2-ASN.mmdb,GeoLite2-Country.mmdb"; \
+        for name in GeoLite2-City.mmdb GeoLite2-ASN.mmdb GeoLite2-Country.mmdb; do \
+            echo "${name}_bytes=$(wc -c < "${geoip_dir}/${name}")"; \
+        done; \
+    } > "${geoip_dir}/SOURCE.txt"; \
+    chmod 0644 "${geoip_dir}/SOURCE.txt"; \
+    chmod 0755 "${geoip_dir}"
+
+LABEL org.opencontainers.image.geoip.mirror="P3TERX/GeoLite.mmdb" \
+      org.opencontainers.image.geoip.dir="/usr/share/telemt-panel/geoip"
+
 COPY DockerEntrypoint.sh /usr/local/bin/telemt-stack-entrypoint.sh
 
 RUN set -eux; \
     chmod 0755 /usr/local/bin/telemt-stack-entrypoint.sh; \
     test -x /usr/local/bin/telemt; \
     test -x /usr/local/bin/telemt-panel; \
-    test -x /usr/local/bin/telemt-stack-entrypoint.sh
+    test -x /usr/local/bin/telemt-stack-entrypoint.sh; \
+    test -s /usr/share/telemt-panel/geoip/GeoLite2-City.mmdb; \
+    test -s /usr/share/telemt-panel/geoip/GeoLite2-ASN.mmdb; \
+    test -s /usr/share/telemt-panel/geoip/GeoLite2-Country.mmdb
 
 EXPOSE 9443
 EXPOSE 9091

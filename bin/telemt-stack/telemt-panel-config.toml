@@ -52,7 +52,13 @@ session_ttl = "24h"
 # acme_domain = "panel.example.com"
 # acme_cache_dir = "/var/lib/telemt-panel/certs"
 
-# Optional GeoIP databases for richer IP display in the panel.
-# [geoip]
-# db_path = "/var/lib/telemt-panel/GeoLite2-City.mmdb"
-# asn_db_path = "/var/lib/telemt-panel/GeoLite2-ASN.mmdb"
+# GeoIP databases (baked into torotin/telemt-stack; no MaxMind license / no runtime download).
+# Prefer the read-only image paths, or the seeded data_dir copies under /var/lib/telemt-panel/geoip/.
+[geoip]
+db_path = "/usr/share/telemt-panel/geoip/GeoLite2-City.mmdb"
+asn_db_path = "/usr/share/telemt-panel/geoip/GeoLite2-ASN.mmdb"
+# Country DB is also baked (panel may ignore it depending on version):
+# country_db_path = "/usr/share/telemt-panel/geoip/GeoLite2-Country.mmdb"
+# data_dir-friendly alternatives after entrypoint seed:
+# db_path = "/var/lib/telemt-panel/geoip/GeoLite2-City.mmdb"
+# asn_db_path = "/var/lib/telemt-panel/geoip/GeoLite2-ASN.mmdb"

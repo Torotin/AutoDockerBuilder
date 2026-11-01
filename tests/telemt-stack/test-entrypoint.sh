@@ -142,8 +142,42 @@ test_sigterm_in_telemt_only_mode() {
     rm -rf "${state}"
 }
 
+test_geoip_seed_copies_missing_only() {
+    state="$(mktemp -d)"
+    mkdir -p "${state}/bin" "${state}/image-geoip" "${state}/data-geoip"
+    printf 'city' >"${state}/image-geoip/GeoLite2-City.mmdb"
+    printf 'asn' >"${state}/image-geoip/GeoLite2-ASN.mmdb"
+    printf 'country' >"${state}/image-geoip/GeoLite2-Country.mmdb"
+    printf 'meta' >"${state}/image-geoip/SOURCE.txt"
+    printf 'keep-me' >"${state}/data-geoip/GeoLite2-ASN.mmdb"
+
+    # shellcheck disable=SC2016
+    make_stub "${state}/bin/telemt" \
+        'sleep 0.05' \
+        'exit 0'
+    # shellcheck disable=SC2016
+    make_stub "${state}/bin/telemt-panel" \
+        'exit 0'
+
+    if ! run_entrypoint "${state}" env \
+        TELEMT_PANEL_ENABLED=false \
+        TELEMT_GEOIP_SEED=true \
+        TELEMT_GEOIP_IMAGE_DIR="${state}/image-geoip" \
+        TELEMT_GEOIP_DATA_DIR="${state}/data-geoip"; then
+        fail "geoip seed run failed"
+    fi
+
+    grep -Fqx -- 'city' "${state}/data-geoip/GeoLite2-City.mmdb" || fail "city MMDB was not seeded"
+    grep -Fqx -- 'country' "${state}/data-geoip/GeoLite2-Country.mmdb" || fail "country MMDB was not seeded"
+    grep -Fqx -- 'meta' "${state}/data-geoip/SOURCE.txt" || fail "SOURCE.txt was not seeded"
+    grep -Fqx -- 'keep-me' "${state}/data-geoip/GeoLite2-ASN.mmdb" || fail "existing ASN MMDB was overwritten"
+    rm -rf "${state}"
+}
+
 test_panel_enabled_by_default
 test_panel_can_be_disabled
 test_panel_failure_is_returned
 test_sigterm_in_telemt_only_mode
+test_geoip_seed_copies_missing_only
 printf 'PASS: telemt-stack entrypoint behavior\n'
+
