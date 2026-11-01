@@ -9,6 +9,7 @@ on:
     paths:
       - "bin/**"
       - "tests/tor-proxy/**"
+      - "tests/prizrak-core/**"
       - ".github/workflows/**"
 
 permissions:

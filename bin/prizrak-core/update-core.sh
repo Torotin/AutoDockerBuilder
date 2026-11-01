@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
+# shellcheck disable=SC1091
 . "$(dirname "$0")/asset-name.sh"
 
 PRIZRAK_BIN="${PRIZRAK_BIN:-/opt/prizrak/prizrak-core}"

@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT_DIR=$(dirname -- "$0")
+SCRIPT_DIR=$(cd -- "${SCRIPT_DIR}" && pwd)
 
 PRIZRAK_BIN="${PRIZRAK_BIN:-/opt/prizrak/prizrak-core}"
 PRIZRAK_CONFIG_DIR="${PRIZRAK_CONFIG_DIR:-/root/.config/mihomo}"
