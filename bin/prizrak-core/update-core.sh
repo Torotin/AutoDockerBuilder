@@ -87,6 +87,19 @@ backup_current() {
   cp -f "${PRIZRAK_BIN}" "${PRIZRAK_BACKUP_DIR}/prizrak-core"
 }
 
+backup_geo() {
+  geo_backup_dir="${PRIZRAK_BACKUP_DIR}/geo"
+  rm -rf "${geo_backup_dir}"
+  mkdir -p "${geo_backup_dir}"
+  for geo_asset in geoip.dat geosite.dat geoip.metadb; do
+    if [ -e "${PRIZRAK_CONFIG_DIR}/${geo_asset}" ]; then
+      cp -f "${PRIZRAK_CONFIG_DIR}/${geo_asset}" "${geo_backup_dir}/${geo_asset}"
+    else
+      : >"${geo_backup_dir}/${geo_asset}.missing"
+    fi
+  done
+}
+
 apply_binary() {
   mkdir -p "$(dirname "${PRIZRAK_BIN}")"
   cp -f "${STAGED_BIN}" "${PRIZRAK_BIN}"
@@ -105,6 +118,18 @@ apply_geo() {
 restore_backup() {
   cp -f "${PRIZRAK_BACKUP_DIR}/prizrak-core" "${PRIZRAK_BIN}"
   chmod +x "${PRIZRAK_BIN}"
+}
+
+restore_geo() {
+  geo_backup_dir="${PRIZRAK_BACKUP_DIR}/geo"
+  for geo_asset in geoip.dat geosite.dat geoip.metadb; do
+    if [ -e "${geo_backup_dir}/${geo_asset}" ]; then
+      mkdir -p "${PRIZRAK_CONFIG_DIR}"
+      cp -f "${geo_backup_dir}/${geo_asset}" "${PRIZRAK_CONFIG_DIR}/${geo_asset}"
+    else
+      rm -f "${PRIZRAK_CONFIG_DIR}/${geo_asset}"
+    fi
+  done
 }
 
 strip_yaml_value() {
@@ -180,12 +205,14 @@ fi
 
 stage_and_verify "${new_tag}"
 backup_current
+backup_geo
 apply_binary
 apply_geo
 restart_core
 
 if ! run_health; then
   restore_backup
+  restore_geo
   restart_core
   rm -rf "${PRIZRAK_STAGE_DIR}"
   exit 1

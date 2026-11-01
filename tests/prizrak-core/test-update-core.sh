@@ -123,6 +123,9 @@ test_failed_health_restores_backup() {
 
   assert_file_content "${PRIZRAK_BIN}" old
   assert_file_content "${PRIZRAK_STATE_FILE}" v1.0.0
+  assert_file_content "${PRIZRAK_CONFIG_DIR}/geoip.dat" old-geoip.dat
+  assert_file_content "${PRIZRAK_CONFIG_DIR}/geosite.dat" old-geosite.dat
+  assert_file_content "${PRIZRAK_CONFIG_DIR}/geoip.metadb" old-geoip.metadb
 }
 
 test_success_advances_state() {
