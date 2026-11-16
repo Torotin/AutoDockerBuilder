@@ -92,7 +92,8 @@ RUN set -eux; \
         openssl \
         jq \
         curl \
-        bash; then \
+        bash \
+        python3; then \
         install_ok=1; \
         break; \
       fi; \

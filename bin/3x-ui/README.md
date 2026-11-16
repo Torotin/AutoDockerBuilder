@@ -28,6 +28,16 @@ Entrypoint responsibilities:
 3. Start `x-ui`, then `afterstart` scripts from `/mnt/sh/afterstart`
 4. Optional Fail2Ban jail when `XUI_ENABLE_FAIL2BAN=true`
 
+Hook scripts under `/mnt/sh/beforestart` and `/mnt/sh/afterstart` may use **`python3`** with the Alpine Python standard library only (`json`, `urllib.request`, `sqlite3`, `subprocess`, etc.). The image does not include `pip` or third-party Python packages. AfterStart scripts may invoke image binaries via `subprocess` (for example `xray`, `openssl` on `PATH`). Consumers still bind-mount those hook directories and any extra tooling they need.
+
+### Runtime packages (final image)
+
+| Package | Role |
+| --- | --- |
+| `bash` | shell hooks and entrypoint helpers |
+| `python3` | AfterStart / BeforeStart hook migration (stdlib only) |
+| `jq`, `curl`, `openssl`, `sqlite` | scripting and panel-adjacent tooling on `PATH` |
+
 Mount expectations are **consumer-defined** (panel DB, env, script hooks). This image does not ship a full compose stack.
 
 ### Notable environment variables
